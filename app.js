@@ -321,7 +321,7 @@ const App = {
             stats: "Analytics & Streak"
         };
         if (mobileViewHeading) {
-            mobileViewHeading.textContent = headings[viewName] || "StudyOS";
+            mobileViewHeading.textContent = headings[viewName] || "FORGE";
         }
 
         const streakVal = document.getElementById('mobileStreakValue');
@@ -406,7 +406,7 @@ const App = {
             stats: "Progress Analytics & Streaks"
         };
         const viewHeading = document.getElementById('viewHeading');
-        if (viewHeading) viewHeading.textContent = headings[viewName] || "Study OS";
+        if (viewHeading) viewHeading.textContent = headings[viewName] || "FORGE";
         this.updateMobileHeaderState(viewName);
 
         const needsRender = force || !this.renderedViews.has(viewName);

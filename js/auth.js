@@ -134,7 +134,7 @@ const AuthController = {
 
         try {
             await SupabaseService.signIn(email, password);
-            this.showMessage('Signed in successfully! Loading your StudyOS...', 'success');
+            this.showMessage('Signed in successfully! Loading your FORGE workspace...', 'success');
             setTimeout(() => {
                 this.hideAuthWall();
             }, 600);
@@ -176,7 +176,7 @@ const AuthController = {
                 this.showMessage('Account created! Please check your email to confirm your account before logging in.', 'success');
                 setTimeout(() => this.switchTab('login'), 3500);
             } else {
-                this.showMessage('Account created successfully! Welcome to StudyOS.', 'success');
+                this.showMessage('Account created successfully! Welcome to FORGE.', 'success');
                 setTimeout(() => {
                     this.hideAuthWall();
                 }, 800);
@@ -262,7 +262,7 @@ const AuthController = {
             Store.resetToDefault();
         }
         this.showAuthWall('login');
-        showToast('You have signed out of StudyOS.', 'info');
+        showToast('You have signed out of FORGE.', 'info');
     },
 
     renderProfileCard(user) {
@@ -399,7 +399,7 @@ const AuthController = {
         // Case B: Existing Cloud User on Clean Device / Browser
         if (cloudHasData && !localHasData) {
             console.log('[AuthController] Case B: Cloud data detected on fresh device. Reconstructing from Supabase...');
-            showToast('Loading your StudyOS cloud workspace from Supabase...', 'info');
+            showToast('Loading your FORGE cloud workspace from Supabase...', 'info');
             if (typeof SyncEngine !== 'undefined') {
                 await SyncEngine.pullCloudState();
                 localStorage.setItem(`studyos_migrated_${userId}`, 'true');
@@ -420,7 +420,7 @@ const AuthController = {
             if (typeof App !== 'undefined' && App.onUserAuthenticated) {
                 await App.onUserAuthenticated(user);
             }
-            showToast('Welcome to StudyOS! Cloud-first foundation active.', 'success');
+            showToast('Welcome to FORGE! Cloud-first foundation active.', 'success');
             return;
         }
 
@@ -649,7 +649,7 @@ const AuthController = {
 
         const counts = this.getLocalCounts();
         if (counts.total === 0) {
-            showToast('No local StudyOS data found to migrate.', 'info');
+            showToast('No local FORGE data found to migrate.', 'info');
             return;
         }
 
@@ -716,7 +716,7 @@ const AuthController = {
                 }
             } else {
                 this.updateSyncBadge('synced');
-                showToast('✅ Cloud Migration Complete! Your StudyOS records are safely synchronized.', 'success');
+                showToast('✅ Cloud Migration Complete! Your FORGE records are safely synchronized.', 'success');
                 if (resultBox && resultDetails) {
                     resultBox.style.display = 'block';
                     resultBox.style.borderColor = '#10b981';

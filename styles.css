@@ -1,65 +1,152 @@
 /* ==========================================================================
-   BOSS Study OS — Premium Dark Productivity Design System
-   Inspired by Linear, Raycast, Notion Calendar, Apple & AI Command Centers
+   FORGE — High-Performance Dark Productivity Design System
+   "Build yourself. Every single day."
+   Architecture: Disciplined, focused, calm, high-contrast layered dark system.
    ========================================================================== */
 
 /* Fonts loaded via high-priority <link rel="stylesheet"> in index.html for parallel non-blocking delivery */
 
 :root {
-    /* Color Palette */
-    --bg-main: #07090e;
-    --bg-subtle: #0b0f17;
-    --panel-bg: rgba(16, 22, 32, 0.78);
-    --panel-solid: #101620;
-    --panel-hover: rgba(26, 35, 49, 0.88);
-    --panel-active: #1e2736;
+    /* -------------------------------------------------------------------------
+       FORGE DESIGN TOKENS — SURFACES (Layered Depth Architecture)
+       ------------------------------------------------------------------------- */
+    --forge-bg: #0c0e12;               /* Base canvas - deep charcoal black */
+    --forge-surface: #13171f;          /* Elevated surface - sidebar, cards, header */
+    --forge-surface-raised: #191f2a;   /* Raised panels, active states, modals */
+    --forge-surface-active: #212937;   /* Interactive hover / pressed surfaces */
+    --forge-surface-overlay: #151a23;  /* Dropdowns, tooltips, dialogs */
+    --forge-surface-subtle: rgba(255, 255, 255, 0.025);
+
+    /* -------------------------------------------------------------------------
+       FORGE DESIGN TOKENS — BORDERS & SEPARATORS
+       ------------------------------------------------------------------------- */
+    --forge-border-subtle: rgba(255, 255, 255, 0.07);
+    --forge-border: rgba(255, 255, 255, 0.12);
+    --forge-border-strong: rgba(255, 255, 255, 0.20);
+    --forge-border-focus: #e5a93c;
+
+    /* -------------------------------------------------------------------------
+       FORGE DESIGN TOKENS — TYPOGRAPHY & CONTRAST
+       ------------------------------------------------------------------------- */
+    --forge-text-primary: #f2f5f8;     /* Crisp high-contrast readable text */
+    --forge-text-secondary: #9aa7b7;   /* Descriptive secondary labels */
+    --forge-text-muted: #5e6b7c;       /* Compact metadata, hints */
+    --forge-text-faint: #3d4653;       /* Inactive indicators, faint borders */
+
+    /* -------------------------------------------------------------------------
+       FORGE DESIGN TOKENS — RESTRAINED WARM ACCENT (Forged Amber / Ember)
+       ------------------------------------------------------------------------- */
+    --forge-accent: #e5a93c;           /* Primary gold/amber accent */
+    --forge-accent-hover: #f0b74d;     /* Lighter warm amber for hover */
+    --forge-accent-active: #cc912e;    /* Deep pressed ember */
+    --forge-accent-subtle: rgba(229, 169, 60, 0.10); /* Transparent tint for active states */
+    --forge-accent-border: rgba(229, 169, 60, 0.28); /* Border tint */
+    --forge-accent-glow: rgba(229, 169, 60, 0.18);
+
+    /* -------------------------------------------------------------------------
+       FORGE DESIGN TOKENS — SEMANTIC STATES
+       ------------------------------------------------------------------------- */
+    --forge-success: #10b981;          /* Disciplined Emerald */
+    --forge-success-subtle: rgba(16, 185, 129, 0.12);
+    --forge-warning: #f59e0b;          /* Alert Amber */
+    --forge-warning-subtle: rgba(245, 158, 11, 0.12);
+    --forge-danger: #ef4444;           /* Crimson */
+    --forge-danger-subtle: rgba(239, 68, 68, 0.12);
+    --forge-info: #3b82f6;             /* Focus Blue */
+    --forge-info-subtle: rgba(59, 130, 246, 0.12);
+
+    /* -------------------------------------------------------------------------
+       FORGE DESIGN TOKENS — SPACING SCALE (8pt Grid System)
+       ------------------------------------------------------------------------- */
+    --forge-space-2xs: 2px;
+    --forge-space-xs: 4px;
+    --forge-space-sm: 8px;
+    --forge-space-md: 12px;
+    --forge-space-lg: 16px;
+    --forge-space-xl: 20px;
+    --forge-space-2xl: 24px;
+    --forge-space-3xl: 32px;
+    --forge-space-4xl: 48px;
+
+    /* -------------------------------------------------------------------------
+       FORGE DESIGN TOKENS — RESTRAINED RADIUS (Structured & Disciplined)
+       ------------------------------------------------------------------------- */
+    --forge-radius-xs: 4px;
+    --forge-radius-sm: 6px;
+    --forge-radius-md: 8px;
+    --forge-radius-lg: 12px;
+    --forge-radius-xl: 16px;
+    --forge-radius-pill: 9999px;        /* Reserved for badges, tags, pills only */
+
+    /* -------------------------------------------------------------------------
+       FORGE DESIGN TOKENS — MOTION & TRANSITIONS
+       ------------------------------------------------------------------------- */
+    --forge-motion-fast: 140ms cubic-bezier(0.16, 1, 0.3, 1);
+    --forge-motion-normal: 220ms cubic-bezier(0.16, 1, 0.3, 1);
+
+    /* -------------------------------------------------------------------------
+       LEGACY & BACKWARD COMPATIBLE SYSTEM MAPPING
+       Ensures existing views remain 100% stable during staged redesign phases.
+       ------------------------------------------------------------------------- */
+    --bg-main: var(--forge-bg);
+    --bg-subtle: var(--forge-surface);
+    --panel-bg: rgba(19, 23, 31, 0.88);
+    --panel-solid: var(--forge-surface);
+    --panel-hover: var(--forge-surface-raised);
+    --panel-active: var(--forge-surface-active);
     
-    /* Borders & Lines */
-    --border-subtle: rgba(255, 255, 255, 0.07);
-    --border-line: #1f2735;
-    --border-focus: #3b82f6;
-    --border-gold: rgba(245, 197, 24, 0.45);
+    --border-subtle: var(--forge-border-subtle);
+    --border-line: var(--forge-border);
+    --border-focus: var(--forge-border-focus);
+    --border-gold: var(--forge-accent-border);
     
-    /* Typography */
-    --text-primary: #f3f6fc;
-    --text-secondary: #94a3b8;
-    --text-muted: #64748b;
-    --text-gold: #f5c518;
-    --text-emerald: #10b981;
-    --text-rose: #f43f5e;
-    --text-amber: #f59e0b;
+    --text-primary: var(--forge-text-primary);
+    --text-secondary: var(--forge-text-secondary);
+    --text-muted: var(--forge-text-muted);
+    --text-gold: var(--forge-accent);
+    --text-emerald: var(--forge-success);
+    --text-rose: var(--forge-danger);
+    --text-amber: var(--forge-warning);
     --text-sky: #38bdf8;
     
-    /* Accent Tones */
-    --gold: #f5c518;
-    --gold-glow: rgba(245, 197, 24, 0.16);
-    --emerald: #10b981;
-    --emerald-glow: rgba(16, 185, 129, 0.16);
-    --rose: #f43f5e;
-    --rose-glow: rgba(244, 63, 94, 0.16);
-    --amber: #f59e0b;
-    --amber-glow: rgba(245, 158, 11, 0.16);
-    --blue: #3b82f6;
-    --blue-glow: rgba(59, 130, 246, 0.16);
+    --gold: var(--forge-accent);
+    --gold-glow: var(--forge-accent-glow);
+    --emerald: var(--forge-success);
+    --emerald-glow: var(--forge-success-subtle);
+    --rose: var(--forge-danger);
+    --rose-glow: var(--forge-danger-subtle);
+    --amber: var(--forge-warning);
+    --amber-glow: var(--forge-warning-subtle);
+    --blue: var(--forge-info);
+    --blue-glow: var(--forge-info-subtle);
     --purple: #a855f7;
     
-    /* Shadows & 3D Layering */
-    --glass-blur: blur(16px);
-    --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.35);
-    --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.45);
-    --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.6);
+    --glass-blur: blur(14px);
+    --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.40);
+    --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.50);
+    --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.65);
     --shadow-3d: 0 10px 30px -5px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.06), inset 0 1px 0 rgba(255,255,255,0.08);
-    --shadow-3d-hover: 0 16px 36px -4px rgba(0,0,0,0.65), 0 0 0 1px rgba(245,197,24,0.3), inset 0 1px 0 rgba(255,255,255,0.12);
+    --shadow-3d-hover: 0 16px 36px -4px rgba(0,0,0,0.65), 0 0 0 1px rgba(229,169,60,0.3), inset 0 1px 0 rgba(255,255,255,0.12);
     
-    /* Radius */
-    --radius-sm: 8px;
-    --radius-md: 12px;
-    --radius-lg: 18px;
-    --radius-full: 9999px;
+    --radius-sm: var(--forge-radius-sm);
+    --radius-md: var(--forge-radius-md);
+    --radius-lg: var(--forge-radius-lg);
+    --radius-full: var(--forge-radius-pill);
     
-    /* Transitions */
-    --transition-fast: 0.15s cubic-bezier(0.4, 0, 0.2, 1);
-    --transition-smooth: 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    --transition-fast: var(--forge-motion-fast);
+    --transition-smooth: var(--forge-motion-normal);
+}
+
+/* -----------------------------------------------------------------------------
+   ACCESSIBILITY: PREFERS REDUCED MOTION
+   ----------------------------------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
 }
 
 /* Reset & Base */
@@ -71,8 +158,8 @@
 
 html, body {
     height: 100%;
-    background-color: var(--bg-main);
-    color: var(--text-primary);
+    background-color: var(--forge-bg);
+    color: var(--forge-text-primary);
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     font-size: 14px;
     line-height: 1.5;
@@ -85,25 +172,22 @@ html, body {
 .app-container {
     display: flex;
     min-height: 100vh;
-    background: radial-gradient(circle at 50% 0%, rgba(30, 41, 59, 0.25) 0%, transparent 60%),
-                radial-gradient(circle at 100% 100%, rgba(245, 197, 24, 0.03) 0%, transparent 50%),
-                var(--bg-main);
+    background: radial-gradient(circle at 50% 0%, rgba(22, 28, 38, 0.35) 0%, transparent 60%),
+                radial-gradient(circle at 100% 100%, rgba(229, 169, 60, 0.02) 0%, transparent 50%),
+                var(--forge-bg);
 }
 
 /* ==========================================================================
-   SIDEBAR NAVIGATION
-   ========================================================================== */
-/* ==========================================================================
-   SIDEBAR NAVIGATION — INDEPENDENT SCROLL & FIXED CONTAINER
+   FORGE SIDEBAR NAVIGATION — INDEPENDENT SCROLL & FIXED CONTAINER
    ========================================================================== */
 .sidebar {
     width: 260px;
     height: 100vh;
     max-height: 100vh;
-    background: rgba(11, 15, 23, 0.94);
+    background: rgba(14, 18, 24, 0.96);
     backdrop-filter: var(--glass-blur);
-    border-right: 1px solid var(--border-line);
-    padding: 18px 0 0 0;
+    border-right: 1px solid var(--forge-border-subtle);
+    padding: 16px 0 0 0;
     display: flex;
     flex-direction: column;
     position: fixed;
@@ -121,35 +205,50 @@ html, body {
     display: flex;
     align-items: center;
     gap: 12px;
-    padding: 2px 6px 14px;
+    padding: 2px 8px 14px;
     margin: 0 12px 10px 12px;
-    border-bottom: 1px solid var(--border-subtle);
+    border-bottom: 1px solid var(--forge-border-subtle);
 }
 
 .brand-logo {
-    width: 36px;
-    height: 36px;
-    border-radius: var(--radius-md);
-    background: linear-gradient(135deg, #f5c518, #d97706);
-    color: #0b0f17;
+    width: 34px;
+    height: 34px;
+    border-radius: var(--forge-radius-md);
+    background: linear-gradient(135deg, #e5a93c, #b47820);
+    color: #0b0d10;
     display: grid;
     place-items: center;
     font-weight: 900;
-    font-size: 17px;
-    box-shadow: 0 4px 14px rgba(245, 197, 24, 0.35);
+    font-size: 16px;
+    letter-spacing: -0.02em;
+    box-shadow: 0 2px 10px rgba(229, 169, 60, 0.28);
 }
 
 .brand-text h1 {
-    font-size: 14.5px;
-    font-weight: 700;
-    letter-spacing: -0.01em;
-    color: var(--text-primary);
+    font-size: 15px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    color: var(--forge-text-primary);
+    text-transform: uppercase;
+    line-height: 1.2;
 }
 
 .brand-text p {
     font-size: 10.5px;
-    color: var(--text-muted);
+    color: var(--forge-text-muted);
     font-weight: 500;
+    letter-spacing: 0.01em;
+}
+
+/* Section Grouping Labels in Navigation */
+.sidebar-nav-group-label {
+    font-size: 9.5px;
+    font-weight: 700;
+    letter-spacing: 0.10em;
+    color: var(--forge-text-muted);
+    text-transform: uppercase;
+    padding: 12px 12px 4px;
+    margin-top: 4px;
 }
 
 /* Scrollable Container covering ALL sidebar content below header */
@@ -164,7 +263,7 @@ html, body {
     padding: 0 8px 18px 12px;
     box-sizing: border-box;
     scrollbar-width: thin;
-    scrollbar-color: rgba(245, 197, 24, 0.28) transparent;
+    scrollbar-color: rgba(229, 169, 60, 0.25) transparent;
 }
 
 .sidebar-scroll-area::-webkit-scrollbar,
@@ -179,90 +278,85 @@ html, body {
 
 .sidebar-scroll-area::-webkit-scrollbar-thumb,
 .sidebar-content::-webkit-scrollbar-thumb {
-    background: rgba(245, 197, 24, 0.25);
+    background: rgba(229, 169, 60, 0.22);
     border-radius: 4px;
-    transition: background var(--transition-fast);
+    transition: background var(--forge-motion-fast);
 }
 
 .sidebar-scroll-area:hover::-webkit-scrollbar-thumb,
 .sidebar-content:hover::-webkit-scrollbar-thumb {
-    background: rgba(245, 197, 24, 0.45);
-}
-
-.sidebar-scroll-area::-webkit-scrollbar-thumb:hover,
-.sidebar-content::-webkit-scrollbar-thumb:hover {
-    background: rgba(245, 197, 24, 0.75);
+    background: rgba(229, 169, 60, 0.40);
 }
 
 .nav-menu {
     display: flex;
     flex-direction: column;
-    gap: 3px;
+    gap: 2px;
     margin-bottom: 0;
 }
 
 .nav-link {
     display: flex;
     align-items: center;
-    gap: 11px;
-    padding: 9px 12px;
-    color: var(--text-secondary);
+    gap: 10px;
+    padding: 8px 12px;
+    color: var(--forge-text-secondary);
     background: transparent;
     border: 1px solid transparent;
-    border-radius: var(--radius-md);
+    border-radius: var(--forge-radius-sm);
     font-size: 13px;
     font-weight: 500;
     cursor: pointer;
     text-align: left;
-    transition: all var(--transition-fast);
+    transition: all var(--forge-motion-fast);
     white-space: nowrap;
     text-overflow: ellipsis;
     overflow: hidden;
 }
 
 .nav-link:hover {
-    color: var(--text-primary);
-    background: var(--panel-hover);
-    border-color: var(--border-subtle);
-    transform: translateX(2px);
+    color: var(--forge-text-primary);
+    background: var(--forge-surface-raised);
+    border-color: var(--forge-border-subtle);
 }
 
 .nav-link.active {
-    color: #fff;
-    background: linear-gradient(90deg, rgba(245, 197, 24, 0.15) 0%, rgba(245, 197, 24, 0.03) 100%);
-    border-color: rgba(245, 197, 24, 0.3);
+    color: #ffffff;
+    background: var(--forge-surface-raised);
+    border-color: var(--forge-accent-border);
+    border-left: 3px solid var(--forge-accent);
     font-weight: 600;
 }
 
 .nav-icon {
-    font-size: 15px;
+    font-size: 14px;
     flex-shrink: 0;
-    transition: transform var(--transition-fast);
+    transition: transform var(--forge-motion-fast);
 }
 
 /* Sidebar Goal Banner */
 .sidebar-goal-card {
-    background: linear-gradient(135deg, rgba(245, 197, 24, 0.12), rgba(16, 22, 32, 0.85));
-    border: 1px solid rgba(245, 197, 24, 0.25);
-    border-radius: var(--radius-md);
+    background: linear-gradient(135deg, rgba(229, 169, 60, 0.08), rgba(25, 31, 42, 0.90));
+    border: 1px solid var(--forge-accent-border);
+    border-radius: var(--forge-radius-md);
     padding: 12px 14px;
-    margin: 10px 0 4px;
+    margin: 14px 0 6px;
     cursor: pointer;
-    box-shadow: var(--shadow-3d);
-    transition: all var(--transition-smooth);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+    transition: all var(--forge-motion-normal);
     flex-shrink: 0;
 }
 
 .sidebar-goal-card:hover {
-    border-color: var(--gold);
-    box-shadow: var(--shadow-3d-hover);
-    transform: translateY(-2px);
+    border-color: var(--forge-accent);
+    transform: translateY(-1px);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
 }
 
 .sidebar-goal-card .goal-badge {
     font-size: 9.5px;
     font-weight: 700;
-    color: var(--gold);
+    color: var(--forge-accent);
     letter-spacing: 0.08em;
     text-transform: uppercase;
     display: inline-block;
@@ -272,12 +366,12 @@ html, body {
 .sidebar-goal-card .goal-title {
     font-size: 12.5px;
     font-weight: 700;
-    color: var(--text-primary);
+    color: var(--forge-text-primary);
 }
 
 .sidebar-goal-card .goal-sub {
     font-size: 10.5px;
-    color: var(--text-muted);
+    color: var(--forge-text-muted);
     margin-top: 2px;
 }
 
@@ -293,7 +387,7 @@ html, body {
     flex-direction: column;
     gap: 6px;
     padding-top: 10px;
-    border-top: 1px solid var(--border-subtle);
+    border-top: 1px solid var(--forge-border-subtle);
 }
 
 .sidebar-utility-section {
@@ -306,10 +400,10 @@ html, body {
 }
 
 .sidebar-section-label {
-    font-size: 10px;
+    font-size: 9.5px;
     font-weight: 700;
     letter-spacing: 0.08em;
-    color: var(--text-muted);
+    color: var(--forge-text-muted);
     text-transform: uppercase;
     padding: 0 4px;
     margin-bottom: 2px;
@@ -318,9 +412,9 @@ html, body {
 .action-btn-ghost {
     background: transparent;
     border: 1px solid transparent;
-    color: var(--text-secondary);
+    color: var(--forge-text-secondary);
     padding: 7px 10px;
-    border-radius: var(--radius-sm);
+    border-radius: var(--forge-radius-sm);
     font-size: 11.5px;
     font-weight: 500;
     cursor: pointer;
@@ -328,50 +422,50 @@ html, body {
     display: flex;
     align-items: center;
     gap: 8px;
-    transition: all var(--transition-fast);
+    transition: all var(--forge-motion-fast);
     width: 100%;
     box-sizing: border-box;
 }
 
 .action-btn-ghost:hover {
-    background: var(--panel-hover);
-    color: var(--text-primary);
-    border-color: var(--border-subtle);
+    background: var(--forge-surface-raised);
+    color: var(--forge-text-primary);
+    border-color: var(--forge-border-subtle);
 }
 
 .action-btn-ghost.danger:hover {
-    color: var(--rose);
-    background: rgba(244, 63, 94, 0.1);
-    border-color: rgba(244, 63, 94, 0.2);
+    color: var(--forge-danger);
+    background: var(--forge-danger-subtle);
+    border-color: rgba(239, 68, 68, 0.25);
 }
 
 /* Status Badges */
 .sync-status-badge {
     font-size: 9.5px;
     font-weight: 700;
-    padding: 2px 6px;
-    border-radius: 9999px;
+    padding: 2px 7px;
+    border-radius: var(--forge-radius-pill);
     letter-spacing: 0.03em;
     margin-left: auto;
     white-space: nowrap;
 }
 
 .sync-status-badge.badge-synced {
-    background: rgba(16, 185, 129, 0.15);
-    color: #10b981;
+    background: var(--forge-success-subtle);
+    color: var(--forge-success);
     border: 1px solid rgba(16, 185, 129, 0.35);
 }
 
 .sync-status-badge.badge-pending {
-    background: rgba(245, 197, 24, 0.15);
-    color: var(--gold);
-    border: 1px solid rgba(245, 197, 24, 0.35);
+    background: var(--forge-accent-subtle);
+    color: var(--forge-accent);
+    border: 1px solid var(--forge-accent-border);
 }
 
 .sync-status-badge.badge-error {
-    background: rgba(244, 63, 94, 0.15);
-    color: var(--rose);
-    border: 1px solid rgba(244, 63, 94, 0.35);
+    background: var(--forge-danger-subtle);
+    color: var(--forge-danger);
+    border: 1px solid rgba(239, 68, 68, 0.35);
 }
 
 /* ==========================================================================
@@ -9877,22 +9971,22 @@ body.unauthenticated .app-container {
 .auth-brand-badge {
     width: 44px;
     height: 44px;
-    border-radius: var(--radius-md);
-    background: linear-gradient(135deg, var(--gold), #d97706);
-    color: #07090e;
+    border-radius: var(--forge-radius-md);
+    background: linear-gradient(135deg, var(--forge-accent), #b47820);
+    color: #0c0e12;
     font-size: 22px;
     font-weight: 900;
     display: flex;
     align-items: center;
     justify-content: center;
-    box-shadow: 0 4px 20px rgba(245, 197, 24, 0.4);
+    box-shadow: 0 4px 20px rgba(229, 169, 60, 0.35);
     margin-bottom: 4px;
 }
 
 .auth-brand-title {
     font-size: 22px;
     font-weight: 800;
-    letter-spacing: 2px;
+    letter-spacing: 0.12em;
     color: #ffffff;
     margin: 0;
     text-transform: uppercase;
@@ -9900,7 +9994,7 @@ body.unauthenticated .app-container {
 
 .auth-brand-sub {
     font-size: 13px;
-    color: var(--text-secondary);
+    color: var(--forge-text-secondary);
     margin: 0;
 }
 
@@ -10696,21 +10790,22 @@ html, body {
     .mobile-brand-badge {
         width: 28px;
         height: 28px;
-        border-radius: var(--radius-sm);
-        background: linear-gradient(135deg, #f5c518, #d97706);
-        color: #0b0f17;
+        border-radius: var(--forge-radius-sm);
+        background: linear-gradient(135deg, #e5a93c, #b47820);
+        color: #0b0d10;
         font-weight: 900;
         font-size: 14px;
         display: grid;
         place-items: center;
-        box-shadow: 0 2px 8px rgba(245, 197, 24, 0.35);
+        box-shadow: 0 2px 8px rgba(229, 169, 60, 0.28);
     }
 
     .mobile-brand-title {
         font-size: 14px;
         font-weight: 800;
-        letter-spacing: -0.01em;
-        color: var(--text-primary);
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--forge-text-primary);
     }
 
     .mobile-header-center {

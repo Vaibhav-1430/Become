@@ -3,8 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BOSS Study OS — Striver A2Z DSA • Full-Stack Development • AI Command Center</title>
-    <meta name="description" content="Adaptive AI-powered personal study operating system for Striver A2Z DSA, Full-Stack Development, and Placement command.">
+    <title>FORGE — Build yourself. Every single day.</title>
+    <meta name="description" content="FORGE: Personal operating system built around discipline, consistency, Striver A2Z DSA, Full-Stack Development, and high-performance daily growth.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap">
@@ -18,9 +18,9 @@
 <div class="modal-overlay auth-modal-overlay" id="authScreenModal" style="display: none;">
     <div class="modal-window auth-modal-window">
         <div class="auth-header">
-            <div class="auth-brand-badge">B</div>
-            <h2 class="auth-brand-title">STUDYOS</h2>
-            <p class="auth-brand-sub" id="authHeaderSubtitle">Placement & Engineering Command Center</p>
+            <div class="auth-brand-badge">F</div>
+            <h2 class="auth-brand-title">FORGE</h2>
+            <p class="auth-brand-sub" id="authHeaderSubtitle">Build yourself. Every single day.</p>
         </div>
 
         <!-- Auth Navigation Tabs -->
@@ -289,10 +289,10 @@
     <aside class="sidebar" id="appSidebar" aria-label="Main Navigation">
         <!-- 1. Brand/Header (Fixed at top) -->
         <div class="brand-header sidebar-header">
-            <div class="brand-logo">B</div>
+            <div class="brand-logo">F</div>
             <div class="brand-text">
-                <h1>BOSS Study OS</h1>
-                <p>Placement Command Center</p>
+                <h1>FORGE</h1>
+                <p>Build yourself. Every single day.</p>
             </div>
             <button type="button" class="btn-drawer-close" id="btnSidebarDrawerClose" aria-label="Close Navigation Drawer">✕</button>
         </div>
@@ -300,8 +300,9 @@
         <!-- 2. Scrollable Sidebar Content Area (Independent Native Vertical Scroll) -->
         <div class="sidebar-scroll-area sidebar-content" id="sidebarScrollArea">
             <nav class="nav-menu" id="sidebarNavMenu">
+                <div class="sidebar-nav-group-label">DISCIPLINE</div>
                 <button class="nav-link active" data-view="today">
-                    <span class="nav-icon">🏠</span>
+                    <span class="nav-icon">⚡</span>
                     <span>Today's Command</span>
                 </button>
                 <button class="nav-link" data-view="calendar">
@@ -320,16 +321,20 @@
                     <span class="nav-icon">💻</span>
                     <span>Development</span>
                 </button>
+
+                <div class="sidebar-nav-group-label">TRAINING & HABITS</div>
                 <button class="nav-link" data-view="mistakes">
-                    <span class="nav-icon">❌</span>
+                    <span class="nav-icon">🎯</span>
                     <span>Mistake Bank & Map</span>
                 </button>
                 <button class="nav-link" data-view="food">
                     <span class="nav-icon">🏋️</span>
                     <span>Gym & Lifestyle</span>
                 </button>
+
+                <div class="sidebar-nav-group-label">CAREER & PROGRESS</div>
                 <button class="nav-link" data-view="placement">
-                    <span class="nav-icon">🎯</span>
+                    <span class="nav-icon">🏆</span>
                     <span>Placement Hub</span>
                 </button>
                 <button class="nav-link" data-view="internship">
@@ -337,15 +342,15 @@
                     <span>Internships</span>
                 </button>
                 <button class="nav-link" data-view="stats">
-                    <span class="nav-icon">📊</span>
+                    <span class="nav-icon">📈</span>
                     <span>Analytics & Streak</span>
                 </button>
 
                 <!-- Sidebar Ultimate Goal Banner (Inside scrollable nav) -->
                 <div class="sidebar-goal-card" id="sidebarGoalCard" data-view="placement">
-                    <span class="goal-badge">🏆 Ultimate Goal</span>
+                    <span class="goal-badge">🎯 Ultimate Target</span>
                     <div class="goal-title">Target: PLACEMENT</div>
-                    <div class="goal-sub" id="sidebarGoalSub">DSA + Full-Stack + FAANG/PBC</div>
+                    <div class="goal-sub" id="sidebarGoalSub">DSA • Full-Stack • Tier-1 Engineering</div>
                 </div>
             </nav>
 
@@ -378,7 +383,7 @@
                     </button>
 
                     <!-- Sign Out (Shown when signed in) -->
-                    <button class="action-btn-ghost danger" id="btnSidebarSignOut" onclick="AuthController.signOut()" style="display: none;" title="Sign out of StudyOS">
+                    <button class="action-btn-ghost danger" id="btnSidebarSignOut" onclick="AuthController.signOut()" style="display: none;" title="Sign out of FORGE">
                         <span>🚪</span>
                         <span>Sign Out</span>
                     </button>
@@ -417,8 +422,8 @@
                     <span class="hamburger-bar"></span>
                 </button>
                 <div class="mobile-brand-pill">
-                    <span class="mobile-brand-badge">B</span>
-                    <span class="mobile-brand-title">StudyOS</span>
+                    <span class="mobile-brand-badge">F</span>
+                    <span class="mobile-brand-title">FORGE</span>
                 </div>
             </div>
             <div class="mobile-header-center">
@@ -438,7 +443,7 @@
         <!-- Top Bar Header -->
         <header class="top-bar">
             <div class="top-bar-left">
-                <span class="greeting-eyebrow" id="greetingEyebrow">GOOD MORNING, BOSS 👋</span>
+                <span class="greeting-eyebrow" id="greetingEyebrow">BUILD YOURSELF · EVERY SINGLE DAY</span>
                 <h2 id="viewHeading">Today's Missions</h2>
             </div>
             <div class="top-bar-right">
@@ -451,7 +456,7 @@
                 <button class="notif-status-pill off" id="notifStatusBadge" title="Click to manage notification settings">
                     🔕 Notifications OFF
                 </button>
-                <button class="top-settings-btn" id="btnTopBarSettings" title="StudyOS Settings & Gemini AI" onclick="App.openSettingsModal('ai')">
+                <button class="top-settings-btn" id="btnTopBarSettings" title="FORGE Settings & Gemini AI" onclick="App.openSettingsModal('ai')">
                     <span>⚙️</span>
                     <span>Settings</span>
                 </button>
@@ -1130,7 +1135,7 @@
             <div style="display: flex; align-items: center; gap: 10px;">
                 <span style="font-size: 20px;">⚙️</span>
                 <div>
-                    <h3 style="margin: 0; font-size: 17px; font-weight: 800; color: #fff;">StudyOS Settings</h3>
+                    <h3 style="margin: 0; font-size: 17px; font-weight: 800; color: #fff;">FORGE Settings</h3>
                     <span style="font-size: 11.5px; color: var(--text-muted);">AI Engine, Notifications & Security</span>
                 </div>
             </div>
@@ -1303,11 +1308,11 @@
                         <b style="color: var(--gold); font-size: 13.5px;">Privacy & Data Minimization Architecture</b>
                     </div>
                     <p style="font-size: 12px; color: var(--text-muted); line-height: 1.5; margin-bottom: 14px;">
-                        StudyOS adheres strictly to local-first and zero-knowledge privacy standards. External AI services (Google Gemini) only receive explicitly formatted study prompts via the secure local server proxy.
+                        FORGE adheres strictly to local-first and zero-knowledge privacy standards. External AI services (Google Gemini) only receive explicitly formatted study prompts via the secure local server proxy.
                     </p>
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; font-size: 12px;">
                         <div style="background: rgba(16, 185, 129, 0.05); border: 1px solid rgba(16, 185, 129, 0.2); border-radius: var(--radius-sm); padding: 12px;">
-                            <span style="color: var(--emerald); font-weight: 700; display: block; margin-bottom: 6px;">✔ What StudyOS AI uses:</span>
+                            <span style="color: var(--emerald); font-weight: 700; display: block; margin-bottom: 6px;">✔ What FORGE AI uses:</span>
                             <ul style="margin: 0; color: var(--text-secondary); padding-left: 16px; line-height: 1.6;">
                                 <li>Study session duration</li>
                                 <li>Task completion & streaks</li>
@@ -1329,7 +1334,7 @@
             </div>
         </div>
         <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center;">
-            <span style="font-size: 11.5px; color: var(--text-muted);">BOSS Study OS · Secure Local Command</span>
+            <span style="font-size: 11.5px; color: var(--text-muted);">FORGE · Secure Local Command</span>
             <button class="action-btn-ghost" onclick="document.getElementById('notifSettingsModal').classList.remove('active')">Close</button>
         </div>
     </div>
@@ -1521,7 +1526,7 @@
             <button class="test-exit-btn" onclick="TestEngine.exitTest()" title="Return to Dashboard (Progress Saved)">
                 ← Back to Test Dashboard
             </button>
-            <div class="test-brand-badge">BOSS STUDY OS</div>
+            <div class="test-brand-badge">FORGE</div>
             <div class="test-title-meta">
                 <span class="test-header-name">Weekly Assessment Engine</span>
                 <span id="testHeaderDate" class="test-header-date">Sunday Review</span>
