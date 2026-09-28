@@ -1,0 +1,89 @@
+[build]
+  publish = "."
+  functions = "netlify/functions"
+
+[[redirects]]
+  from = "/api/auth/config"
+  to = "/.netlify/functions/auth"
+  status = 200
+
+[[redirects]]
+  from = "/api/ai/test-connection"
+  to = "/.netlify/functions/gemini?action=test-connection"
+  status = 200
+
+[[redirects]]
+  from = "/api/gemini/test-connection"
+  to = "/.netlify/functions/gemini?action=test-connection"
+  status = 200
+
+[[redirects]]
+  from = "/api/ai/status"
+  to = "/.netlify/functions/gemini?action=status"
+  status = 200
+
+[[redirects]]
+  from = "/api/gemini/status"
+  to = "/.netlify/functions/gemini?action=status"
+  status = 200
+
+[[redirects]]
+  from = "/api/ai/config"
+  to = "/.netlify/functions/gemini?action=config"
+  status = 200
+
+[[redirects]]
+  from = "/api/gemini/config"
+  to = "/.netlify/functions/gemini?action=config"
+  status = 200
+
+[[redirects]]
+  from = "/api/gemini/chat"
+  to = "/.netlify/functions/gemini?action=chat"
+  status = 200
+
+[[redirects]]
+  from = "/api/gemini/plan"
+  to = "/.netlify/functions/gemini?action=plan"
+  status = 200
+
+[[redirects]]
+  from = "/api/gemini/insights"
+  to = "/.netlify/functions/gemini?action=insights"
+  status = 200
+
+[[redirects]]
+  from = "/api/gemini/analyze-test"
+  to = "/.netlify/functions/gemini?action=analyze-test"
+  status = 200
+
+[[redirects]]
+  from = "/api/gemini/reschedule"
+  to = "/.netlify/functions/gemini?action=reschedule"
+  status = 200
+
+[[redirects]]
+  from = "/api/gemini/session-insight"
+  to = "/.netlify/functions/gemini?action=session-insight"
+  status = 200
+
+[[redirects]]
+  from = "/api/ai/credentials"
+  to = "/.netlify/functions/gemini?action=credentials"
+  status = 200
+
+[[redirects]]
+  from = "/api/gemini/credentials"
+  to = "/.netlify/functions/gemini?action=credentials"
+  status = 200
+
+[[redirects]]
+  from = "/api/judge"
+  to = "/.netlify/functions/judge"
+  status = 200
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Cross-Origin-Opener-Policy = "same-origin"
+    Cross-Origin-Embedder-Policy = "require-corp"

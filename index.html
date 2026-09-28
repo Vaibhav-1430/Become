@@ -1,0 +1,2109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BOSS Study OS — Striver A2Z DSA • Full-Stack Development • AI Command Center</title>
+    <meta name="description" content="Adaptive AI-powered personal study operating system for Striver A2Z DSA, Full-Stack Development, and Placement command.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- ==========================================================================
+     AUTHENTICATION WALL & LOGIN/SIGNUP MODAL
+     ========================================================================== -->
+<div class="modal-overlay auth-modal-overlay" id="authScreenModal" style="display: none;">
+    <div class="modal-window auth-modal-window">
+        <div class="auth-header">
+            <div class="auth-brand-badge">B</div>
+            <h2 class="auth-brand-title">STUDYOS</h2>
+            <p class="auth-brand-sub" id="authHeaderSubtitle">Placement & Engineering Command Center</p>
+        </div>
+
+        <!-- Auth Navigation Tabs -->
+        <div class="auth-tabs-nav">
+            <button type="button" class="auth-tab-btn active" data-auth-tab="login">Sign In</button>
+            <button type="button" class="auth-tab-btn" data-auth-tab="signup">Create Account</button>
+            <button type="button" class="auth-tab-btn" data-auth-tab="setup">Connect Cloud</button>
+        </div>
+
+        <div id="authMessageBanner" class="auth-message-banner" style="display: none;"></div>
+
+        <!-- 1. LOGIN TAB -->
+        <div id="authTab_login" class="auth-tab-content">
+            <h3 class="auth-section-title">Welcome back.</h3>
+            <p class="auth-section-desc">Sign in to sync your study metrics, DSA progress, and workout logs.</p>
+            <form id="authLoginForm" class="auth-form" autocomplete="on">
+                <div class="form-group">
+                    <label class="form-label" for="loginEmail">Email Address</label>
+                    <input type="email" id="loginEmail" class="form-input" placeholder="name@domain.com" required autocomplete="email">
+                </div>
+                <div class="form-group">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <label class="form-label" for="loginPassword" style="margin-bottom: 0;">Password</label>
+                        <button type="button" class="btn-text-ghost" data-auth-tab="forgot" style="font-size: 11.5px; color: var(--gold); padding: 0; background: none; border: none; cursor: pointer;">Forgot password?</button>
+                    </div>
+                    <input type="password" id="loginPassword" class="form-input" placeholder="••••••••••••" required autocomplete="current-password">
+                </div>
+                <button type="submit" id="btnLoginSubmit" class="btn-primary auth-btn-submit">
+                    Sign In →
+                </button>
+            </form>
+            <div class="auth-footer-prompt">
+                Don't have an account? <button type="button" class="btn-text-link" data-auth-tab="signup">Create account</button>
+            </div>
+        </div>
+
+        <!-- 2. SIGNUP TAB -->
+        <div id="authTab_signup" class="auth-tab-content" style="display: none;">
+            <h3 class="auth-section-title">Create your account.</h3>
+            <p class="auth-section-desc">Start your disciplined engineering journey with cloud persistence.</p>
+            <form id="authSignupForm" class="auth-form" autocomplete="on">
+                <div class="form-group">
+                    <label class="form-label" for="signupName">Your Name</label>
+                    <input type="text" id="signupName" class="form-input" placeholder="e.g. Vaibhav" required autocomplete="name">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="signupEmail">Email Address</label>
+                    <input type="email" id="signupEmail" class="form-input" placeholder="name@domain.com" required autocomplete="email">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="signupPassword">Password (Min. 6 characters)</label>
+                    <input type="password" id="signupPassword" class="form-input" placeholder="••••••••••••" minlength="6" required autocomplete="new-password">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="signupConfirmPassword">Confirm Password</label>
+                    <input type="password" id="signupConfirmPassword" class="form-input" placeholder="••••••••••••" minlength="6" required autocomplete="new-password">
+                </div>
+                <button type="submit" id="btnSignupSubmit" class="btn-primary auth-btn-submit">
+                    Create Account →
+                </button>
+            </form>
+            <div class="auth-footer-prompt">
+                Already have an account? <button type="button" class="btn-text-link" data-auth-tab="login">Sign in</button>
+            </div>
+        </div>
+
+        <!-- 3. FORGOT PASSWORD TAB -->
+        <div id="authTab_forgot" class="auth-tab-content" style="display: none;">
+            <h3 class="auth-section-title">Reset Password</h3>
+            <p class="auth-section-desc">Enter your account email to receive a secure recovery link.</p>
+            <form id="authForgotForm" class="auth-form">
+                <div class="form-group">
+                    <label class="form-label" for="forgotEmail">Account Email</label>
+                    <input type="email" id="forgotEmail" class="form-input" placeholder="name@domain.com" required>
+                </div>
+                <button type="submit" id="btnForgotSubmit" class="btn-primary auth-btn-submit">
+                    Send Reset Link
+                </button>
+            </form>
+            <div class="auth-footer-prompt">
+                Remember your password? <button type="button" class="btn-text-link" data-auth-tab="login">Back to Sign In</button>
+            </div>
+        </div>
+
+        <!-- 4. SUPABASE CLOUD SETUP TAB -->
+        <div id="authTab_setup" class="auth-tab-content" style="display: none;">
+            <h3 class="auth-section-title">Supabase Cloud Connection</h3>
+            <p class="auth-section-desc">Configure your Supabase Project URL and Anon Key for production cloud sync.</p>
+            <form id="authSetupForm" class="auth-form">
+                <div class="form-group">
+                    <label class="form-label" for="setupUrl">Supabase Project URL</label>
+                    <input type="url" id="setupUrl" class="form-input" placeholder="https://your-project.supabase.co" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="setupAnonKey">Supabase Publishable Anon Key</label>
+                    <input type="text" id="setupAnonKey" class="form-input" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." required>
+                </div>
+                <button type="submit" id="btnSaveConfig" class="btn-primary auth-btn-submit">
+                    Save & Connect Cloud →
+                </button>
+            </form>
+            <div style="margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border-subtle); text-align: center;">
+                <button type="button" class="action-btn-ghost" onclick="AuthController.continueOfflineDemo()" style="font-size: 12px; width: 100%;">
+                    Continue in Offline / Demo Mode →
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ==========================================================================
+<!-- ==========================================================================
+     CLOUD DATA MIGRATION & SYNCHRONIZATION MODAL
+     ========================================================================== -->
+<div class="modal-overlay" id="cloudMigrationModal">
+    <div class="modal-window cloud-sync-modal-window">
+        <div class="modal-header">
+            <div>
+                <span class="wizard-modal-eyebrow">SUPABASE POSTGRESQL · CLOUD SYNC</span>
+                <h3 class="wizard-modal-title">☁️ Cloud Sync & Migration</h3>
+            </div>
+            <button type="button" class="btn-close-modal" onclick="AuthController.closeMigrationModal()">×</button>
+        </div>
+        <div class="modal-body" style="padding: 22px;">
+            <!-- Connection & Account Status Card -->
+            <div class="cloud-status-card">
+                <div>
+                    <div style="display: flex; align-items: center; font-size: 13px; font-weight: 700; color: #fff; margin-bottom: 4px;">
+                        <span class="cloud-status-dot" id="modalCloudStatusDot"></span>
+                        <span id="modalCloudStatusText">Connecting to Supabase...</span>
+                    </div>
+                    <div style="font-size: 12px; color: var(--text-muted);">
+                        Account: <b id="modalUserEmail" style="color: var(--text-primary);">Not signed in</b>
+                    </div>
+                </div>
+                <button type="button" class="action-btn-ghost" onclick="AuthController.refreshCloudStatus()" style="width: auto; padding: 5px 12px; font-size: 11.5px;">
+                    🔄 Refresh Status
+                </button>
+            </div>
+
+            <!-- Sync Summary Info -->
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px;">
+                <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 10px 14px;">
+                    <small style="color: var(--text-muted); font-size: 11px; text-transform: uppercase; font-weight: 700; display: block; margin-bottom: 2px;">Local Data</small>
+                    <div id="modalLocalDataStatus" style="font-size: 13px; font-weight: 700; color: var(--gold);">Detecting local records...</div>
+                </div>
+                <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 10px 14px;">
+                    <small style="color: var(--text-muted); font-size: 11px; text-transform: uppercase; font-weight: 700; display: block; margin-bottom: 2px;">Cloud Data</small>
+                    <div id="modalCloudDataStatus" style="font-size: 13px; font-weight: 700; color: #60a5fa;">Checking cloud storage...</div>
+                </div>
+            </div>
+
+            <!-- Migration Notice / Safety Guarantee -->
+            <div style="background: rgba(245, 197, 24, 0.06); border: 1px solid rgba(245, 197, 24, 0.22); border-radius: var(--radius-sm); padding: 12px 14px; margin-bottom: 16px;">
+                <div style="font-size: 11px; font-weight: 700; color: var(--gold); text-transform: uppercase; margin-bottom: 4px; display: flex; align-items: center; gap: 6px;">
+                    <span>🛡️</span> Idempotent & User-Isolated Migration
+                </div>
+                <div style="font-size: 12px; color: var(--text-secondary); line-height: 1.5;">
+                    Your local study data can be safely migrated to your private Supabase cloud account. Running synchronization multiple times is idempotent and will never duplicate records.
+                </div>
+            </div>
+
+            <!-- Live Migration Category Breakdown Preview -->
+            <div style="font-size: 11.5px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px;">
+                Migration Data Preview:
+            </div>
+            <div class="migration-preview-grid" id="modalMigrationPreviewGrid">
+                <div class="migration-cat-item">
+                    <div class="migration-cat-info">
+                        <span>🧠 Striver DSA Progress</span>
+                        <small id="prevCountDsa">0 problems recorded</small>
+                    </div>
+                    <span class="sync-status-badge badge-pending" id="prevBadgeDsa">Ready</span>
+                </div>
+                <div class="migration-cat-item">
+                    <div class="migration-cat-info">
+                        <span>💻 Development Progress</span>
+                        <small id="prevCountDev">0 items completed</small>
+                    </div>
+                    <span class="sync-status-badge badge-pending" id="prevBadgeDev">Ready</span>
+                </div>
+                <div class="migration-cat-item">
+                    <div class="migration-cat-info">
+                        <span>📅 Daily Study Tasks</span>
+                        <small id="prevCountTasks">0 schedule items</small>
+                    </div>
+                    <span class="sync-status-badge badge-pending" id="prevBadgeTasks">Ready</span>
+                </div>
+                <div class="migration-cat-item">
+                    <div class="migration-cat-info">
+                        <span>⏱️ Timed Study Sessions</span>
+                        <small id="prevCountSessions">0 focus sessions</small>
+                    </div>
+                    <span class="sync-status-badge badge-pending" id="prevBadgeSessions">Ready</span>
+                </div>
+                <div class="migration-cat-item">
+                    <div class="migration-cat-info">
+                        <span>❌ Mistake Bank & Map</span>
+                        <small id="prevCountMistakes">0 mistakes logged</small>
+                    </div>
+                    <span class="sync-status-badge badge-pending" id="prevBadgeMistakes">Ready</span>
+                </div>
+                <div class="migration-cat-item">
+                    <div class="migration-cat-info">
+                        <span>🏋️ Gym Split & Sessions</span>
+                        <small id="prevCountGym">0 workouts logged</small>
+                    </div>
+                    <span class="sync-status-badge badge-pending" id="prevBadgeGym">Ready</span>
+                </div>
+                <div class="migration-cat-item">
+                    <div class="migration-cat-info">
+                        <span>🎯 Placement Hub Data</span>
+                        <small id="prevCountPlacement">Roadmaps & tests</small>
+                    </div>
+                    <span class="sync-status-badge badge-pending" id="prevBadgePlacement">Ready</span>
+                </div>
+                <div class="migration-cat-item">
+                    <div class="migration-cat-info">
+                        <span>💼 Internships Tracker</span>
+                        <small id="prevCountInternships">0 applications</small>
+                    </div>
+                    <span class="sync-status-badge badge-pending" id="prevBadgeInternships">Ready</span>
+                </div>
+            </div>
+
+            <!-- Progress & Summary Result Container -->
+            <div id="migrationProgressWrap" style="display: none; margin-top: 14px;">
+                <div id="migrationProgressText" style="font-size: 12.5px; color: var(--gold); font-style: italic; margin-bottom: 6px;">
+                    Starting migration...
+                </div>
+                <div class="migration-progress-bar">
+                    <div class="migration-progress-fill" id="migrationProgressBarFill"></div>
+                </div>
+            </div>
+
+            <!-- Migration Results Details Box -->
+            <div id="migrationResultBox" style="display: none; margin-top: 14px; background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: var(--radius-sm); padding: 12px 16px;">
+                <div style="font-size: 13px; font-weight: 700; color: #10b981; margin-bottom: 6px;" id="migrationResultTitle">
+                    ✅ Migration Completed Successfully
+                </div>
+                <div id="migrationResultDetails" style="font-size: 12px; color: var(--text-primary); line-height: 1.6;"></div>
+            </div>
+        </div>
+
+        <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center; padding: 16px 22px; flex-wrap: wrap; gap: 10px;">
+            <div style="display: flex; gap: 8px;">
+                <button type="button" id="btnPullCloudData" class="action-btn-ghost" onclick="AuthController.pullCloudData()" style="width: auto;">
+                    <span>⬇</span> <span>Pull Cloud Data</span>
+                </button>
+            </div>
+            <div style="display: flex; gap: 10px;">
+                <button type="button" class="action-btn-ghost" onclick="AuthController.closeMigrationModal()" style="width: auto;">Close</button>
+                <button type="button" id="btnStartMigration" class="btn-primary" onclick="AuthController.performMigration()">
+                    Sync Local Data to Cloud →
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="app-container">
+    <!-- Mobile Drawer Backdrop -->
+    <div class="sidebar-drawer-backdrop" id="sidebarDrawerBackdrop" aria-hidden="true"></div>
+
+    <!-- SIDEBAR NAVIGATION — INDEPENDENT SCROLL & FIXED CONTAINER -->
+    <aside class="sidebar" id="appSidebar" aria-label="Main Navigation">
+        <!-- 1. Brand/Header (Fixed at top) -->
+        <div class="brand-header sidebar-header">
+            <div class="brand-logo">B</div>
+            <div class="brand-text">
+                <h1>BOSS Study OS</h1>
+                <p>Placement Command Center</p>
+            </div>
+            <button type="button" class="btn-drawer-close" id="btnSidebarDrawerClose" aria-label="Close Navigation Drawer">✕</button>
+        </div>
+
+        <!-- 2. Scrollable Sidebar Content Area (Independent Native Vertical Scroll) -->
+        <div class="sidebar-scroll-area sidebar-content" id="sidebarScrollArea">
+            <nav class="nav-menu" id="sidebarNavMenu">
+                <button class="nav-link active" data-view="today">
+                    <span class="nav-icon">🏠</span>
+                    <span>Today's Command</span>
+                </button>
+                <button class="nav-link" data-view="calendar">
+                    <span class="nav-icon">📅</span>
+                    <span>2-Year Calendar</span>
+                </button>
+                <button class="nav-link" data-view="dsa">
+                    <span class="nav-icon">🧠</span>
+                    <span>Striver DSA A2Z</span>
+                </button>
+                <button class="nav-link" data-view="ai-engine">
+                    <span class="nav-icon">🤖</span>
+                    <span>AI Study Engine</span>
+                </button>
+                <button class="nav-link" data-view="development">
+                    <span class="nav-icon">💻</span>
+                    <span>Development</span>
+                </button>
+                <button class="nav-link" data-view="mistakes">
+                    <span class="nav-icon">❌</span>
+                    <span>Mistake Bank & Map</span>
+                </button>
+                <button class="nav-link" data-view="food">
+                    <span class="nav-icon">🏋️</span>
+                    <span>Gym & Lifestyle</span>
+                </button>
+                <button class="nav-link" data-view="placement">
+                    <span class="nav-icon">🎯</span>
+                    <span>Placement Hub</span>
+                </button>
+                <button class="nav-link" data-view="internship">
+                    <span class="nav-icon">💼</span>
+                    <span>Internships</span>
+                </button>
+                <button class="nav-link" data-view="stats">
+                    <span class="nav-icon">📊</span>
+                    <span>Analytics & Streak</span>
+                </button>
+
+                <!-- Sidebar Ultimate Goal Banner (Inside scrollable nav) -->
+                <div class="sidebar-goal-card" id="sidebarGoalCard" data-view="placement">
+                    <span class="goal-badge">🏆 Ultimate Goal</span>
+                    <div class="goal-title">Target: PLACEMENT</div>
+                    <div class="goal-sub" id="sidebarGoalSub">DSA + Full-Stack + FAANG/PBC</div>
+                </div>
+            </nav>
+
+            <!-- 3. Sidebar Footer (Inside scroll area) -->
+            <div class="sidebar-footer">
+                <!-- Account Section -->
+                <div class="sidebar-account-section">
+                    <!-- Authenticated User Profile Card -->
+                    <div class="sidebar-user-card" id="sidebarUserCard">
+                        <div class="user-card-content unauth" onclick="AuthController.showAuthWall('login')">
+                            <div class="user-avatar-placeholder">👤</div>
+                            <div class="user-info-text">
+                                <span class="user-name">Sign In / Register</span>
+                                <span class="user-role">Cloud Sync Disabled</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Settings & AI Key -->
+                    <button class="action-btn-ghost" id="btnSidebarSettings" onclick="App.openSettingsModal('ai')">
+                        <span>⚙️</span>
+                        <span>Settings & AI Key</span>
+                    </button>
+
+                    <!-- Direct Cloud Sync & Migration Button -->
+                    <button class="action-btn-ghost" id="btnSidebarCloudSync" onclick="AuthController.triggerMigrationModal()" title="Sync local data with Supabase Cloud">
+                        <span>☁️</span>
+                        <span style="flex: 1;">Cloud Sync & Migration</span>
+                        <span class="sync-status-badge badge-pending" id="sidebarCloudSyncBadge">Pending</span>
+                    </button>
+
+                    <!-- Sign Out (Shown when signed in) -->
+                    <button class="action-btn-ghost danger" id="btnSidebarSignOut" onclick="AuthController.signOut()" style="display: none;" title="Sign out of StudyOS">
+                        <span>🚪</span>
+                        <span>Sign Out</span>
+                    </button>
+                </div>
+
+                <!-- Utility Section -->
+                <div class="sidebar-utility-section">
+                    <div class="sidebar-section-label">UTILITIES</div>
+                    <button class="action-btn-ghost" id="exportBackupBtn">
+                        <span>⬇</span>
+                        <span>Export Backup (JSON)</span>
+                    </button>
+                    <label class="action-btn-ghost">
+                        <span>⬆</span>
+                        <span>Import Backup</span>
+                        <input type="file" id="importBackupFile" accept=".json" style="display: none;">
+                    </label>
+                    <button class="action-btn-ghost danger" id="resetAppBtn">
+                        <span>⚠️</span>
+                        <span>Reset All Data</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </aside>
+
+    <!-- MAIN CONTENT WRAPPER -->
+    <main class="main-wrapper" id="mainWrapper">
+
+        <!-- Mobile Sticky Top Header (Visible on < 1024px) -->
+        <header class="mobile-header" id="mobileHeader" aria-label="Mobile Navigation Bar">
+            <div class="mobile-header-left">
+                <button type="button" class="btn-mobile-menu" id="btnMobileMenuToggle" aria-label="Open Navigation Menu" aria-expanded="false">
+                    <span class="hamburger-bar"></span>
+                    <span class="hamburger-bar"></span>
+                    <span class="hamburger-bar"></span>
+                </button>
+                <div class="mobile-brand-pill">
+                    <span class="mobile-brand-badge">B</span>
+                    <span class="mobile-brand-title">StudyOS</span>
+                </div>
+            </div>
+            <div class="mobile-header-center">
+                <span class="mobile-view-heading" id="mobileViewHeading">Today's Missions</span>
+            </div>
+            <div class="mobile-header-right">
+                <div class="mobile-streak-pill" id="mobileStreakPill" title="Daily Streak">
+                    <span>🔥</span>
+                    <span id="mobileStreakValue">0</span>
+                </div>
+                <button type="button" class="mobile-header-btn" id="btnMobileTopSync" onclick="AuthController.triggerMigrationModal()" title="Cloud Sync & Migration" aria-label="Cloud Sync">
+                    <span>☁️</span>
+                </button>
+            </div>
+        </header>
+
+        <!-- Top Bar Header -->
+        <header class="top-bar">
+            <div class="top-bar-left">
+                <span class="greeting-eyebrow" id="greetingEyebrow">GOOD MORNING, BOSS 👋</span>
+                <h2 id="viewHeading">Today's Missions</h2>
+            </div>
+            <div class="top-bar-right">
+                <!-- Persistent Active Study Session Indicator (Part 15) -->
+                <button class="active-session-pill" id="topBarActiveSessionPill" style="display: none;" title="Active Study Session Running — Click to Return">
+                    <span class="active-session-dot"></span>
+                    <span style="font-weight: 700; letter-spacing: 0.5px;">STUDYING</span>
+                    <span id="topBarSessionTimer" class="active-session-clock">00:00:00</span>
+                </button>
+                <button class="notif-status-pill off" id="notifStatusBadge" title="Click to manage notification settings">
+                    🔕 Notifications OFF
+                </button>
+                <button class="top-settings-btn" id="btnTopBarSettings" title="StudyOS Settings & Gemini AI" onclick="App.openSettingsModal('ai')">
+                    <span>⚙️</span>
+                    <span>Settings</span>
+                </button>
+                <div class="date-badge">
+                    <span>📅</span>
+                    <span id="currentDateDisplay">18 August 2026</span>
+                </div>
+                <div class="streak-badge">
+                    <span>🔥</span>
+                    <span id="currentStreakDisplay">0 Day Streak</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- VIEW 1: TODAY / DASHBOARD -->
+        <section id="view-today" class="view-section active-view">
+            <!-- Hero Banner -->
+            <div class="hero-banner">
+                <div class="hero-content">
+                    <h3>Focus & Execute Today's Routine</h3>
+                    <p>Every single day compounds into placement success. Complete your morning DSA block, attend college, hit the gym, take your creatine, and finish your night development session.</p>
+                    <div style="margin-top: 16px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+                        <button class="btn-start-studying" id="btnHeroStartStudying">
+                            <span class="pulse-icon">▶</span>
+                            <span>START STUDYING</span>
+                        </button>
+                        <button class="btn-what-to-study" id="btnHeroWhatShouldIStudy" onclick="RecommendEngine.showRecommendationModal()" title="Analyze current real data and recommend highest impact study task">
+                            <span>⚡</span>
+                            <span>WHAT SHOULD I STUDY?</span>
+                        </button>
+                    </div>
+                </div>
+                <div class="progress-ring-box">
+                    <div class="ring-wrapper">
+                        <svg width="88" height="88">
+                            <circle class="ring-bg" cx="44" cy="44" r="36"></circle>
+                            <circle class="ring-progress" id="heroProgressCircle" cx="44" cy="44" r="36" stroke-dasharray="226.19" stroke-dashoffset="226.19"></circle>
+                        </svg>
+                        <div class="ring-text">
+                            <strong id="heroProgressPct">0%</strong>
+                            <small>Done</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Top Metric Cards -->
+            <div class="metrics-grid">
+                <div class="metric-card">
+                    <div class="metric-header">
+                        <span>Today's Progress</span>
+                        <span>📈</span>
+                    </div>
+                    <div class="metric-value" id="metricTodayPct">0%</div>
+                    <div class="metric-footer" id="metricTodaySub">0 / 0 study tasks done</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-header">
+                        <span>DSA Solved</span>
+                        <span>🧠</span>
+                    </div>
+                    <div class="metric-value" id="metricDsaRatio">0/3</div>
+                    <div class="metric-footer" id="metricDsaTotal">0 of 443 total A2Z</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-header">
+                        <span>Development Block</span>
+                        <span>💻</span>
+                    </div>
+                    <div class="metric-value" id="metricDevRatio">0/1</div>
+                    <div class="metric-footer" id="metricDevStatus">Night Project Block</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-header">
+                        <span>Current Streak</span>
+                        <span>🔥</span>
+                    </div>
+                    <div class="metric-value" id="metricStreakVal">0 Days</div>
+                    <div class="metric-footer">Consistency is key</div>
+                </div>
+            </div>
+
+            <!-- TODAY'S AI ADAPTIVE COMMAND CARD (Part 11) -->
+            <div id="todayAiDashboardWidget" style="margin-bottom: 24px;"></div>
+
+            <!-- 1. COMPACT STUDY RECOVERY CONTROL PANEL -->
+            <div class="study-recovery-card">
+                <div class="recovery-header-row">
+                    <div>
+                        <h4>⚡ Study Recovery Engine</h4>
+                        <p>Something came up or overslept? Click below to automatically reschedule unfinished study into your College Window (09:00 - 16:00).</p>
+                    </div>
+                </div>
+                <div class="recovery-actions-grid">
+                    <button class="btn-recovery-pill" id="btnInterruptCards">
+                        <span>🃏</span>
+                        <span>I'm Playing Cards</span>
+                    </button>
+                    <button class="btn-recovery-pill" id="btnInterruptGF">
+                        <span>❤️</span>
+                        <span>I'm Talking to GF</span>
+                    </button>
+                    <button class="btn-recovery-pill danger" id="btnInterruptOverslept">
+                        <span>😴</span>
+                        <span>I Didn't Wake Up</span>
+                    </button>
+                </div>
+                <!-- Live recovery breadcrumb flow -->
+                <div class="live-recovery-breadcrumb" id="liveRecoveryBreadcrumb">
+                    <div class="breadcrumb-steps">
+                        <span>Morning DSA (06:45)</span>
+                        <span class="arrow">→</span>
+                        <span id="breadcrumbRecoveryStatus">Ready for study</span>
+                    </div>
+                    <span id="breadcrumbUndoAction" style="display: none;">
+                        <button class="btn-toast-undo" onclick="App.undoInterruption()">UNDO ACTION</button>
+                    </span>
+                </div>
+            </div>
+
+            <!-- 2. POST-WORKOUT FOOD RECIPE CARD (Soya Chunks & Chocolate Protein Oats) -->
+            <div class="postworkout-recipe-card" id="todayRecipeWidget">
+                <div class="recipe-header-row">
+                    <div>
+                        <span class="recipe-badge">🥣 Today's Post-Workout Recipe (Hostel Kitchen)</span>
+                        <div class="recipe-name" id="widgetRecipeName">Masala Soya Oats Power Bowl</div>
+                        <div class="recipe-meta-tags">
+                            <span>⏱ Cook Time: <b id="widgetRecipeTime">12-15 mins</b></span>
+                            <span>⚡ Difficulty: <b id="widgetRecipeDiff">Easy</b></span>
+                            <span>💪 Primary: <b>Soya Chunks + Chocolate Protein Oats</b></span>
+                        </div>
+                    </div>
+                    <button class="btn-primary" id="btnWidgetNewRecipe" style="padding: 7px 12px; font-size: 12px;">
+                        🎲 New Recipe
+                    </button>
+                </div>
+
+                <div class="recipe-body-grid">
+                    <div class="recipe-ingredients">
+                        <h5>Required Ingredients</h5>
+                        <ul id="widgetRecipeIngredients"></ul>
+                    </div>
+                    <div class="recipe-steps">
+                        <h5>Simple Cooking Steps</h5>
+                        <ol id="widgetRecipeSteps"></ol>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 3. DAILY REMINDERS & NOTIFICATION STATUS -->
+            <div class="reminders-panel-card">
+                <div class="reminder-items-row">
+                    <div class="reminder-pill">
+                        <span>🧠</span>
+                        <div>
+                            <span>Morning DSA</span>
+                            <span class="reminder-time"> · 06:45 AM</span>
+                        </div>
+                    </div>
+                    <div class="reminder-pill">
+                        <span>💊</span>
+                        <div>
+                            <span>Daily Creatine</span>
+                            <span class="reminder-time"> · 10:00 PM</span>
+                        </div>
+                    </div>
+                    <div class="reminder-pill">
+                        <span>💻</span>
+                        <div>
+                            <span>Night Dev Block</span>
+                            <span class="reminder-time"> · 11:00 PM</span>
+                        </div>
+                    </div>
+                </div>
+                <button class="action-btn-ghost" id="btnOpenNotifSettings" style="font-weight: 700; color: var(--gold);">
+                    ⚙️ Notification Settings
+                </button>
+            </div>
+
+            <!-- TODAY'S DEVELOPMENT MISSION WIDGET -->
+            <div class="today-dev-mission-card" id="todayDevMissionWidget">
+                <div class="today-dev-mission-header">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <span style="font-size: 24px;">💻</span>
+                        <div>
+                            <span class="today-dev-badge">TODAY'S DEVELOPMENT MISSION</span>
+                            <h4 id="todayDevMissionTitle" style="margin: 2px 0 0 0; font-size: 15px; color: #fff;">JavaScript — Core Progression</h4>
+                        </div>
+                    </div>
+                    <button class="btn-primary" id="btnTodayOpenDev" onclick="App.switchView('development')">
+                        Open Development Hub →
+                    </button>
+                </div>
+                <div class="today-dev-mission-body" id="todayDevMissionBody">
+                    <div class="today-dev-item" id="todayDevWatchItem">
+                        <b>▶ Watch:</b> <span id="todayDevWatchText">JavaScript — Lesson #1</span>
+                    </div>
+                    <div class="today-dev-item" id="todayDevPracticeItem">
+                        <b>🛠 Practice:</b> <span id="todayDevPracticeText">Build a Custom Event Emitter</span>
+                    </div>
+                    <div class="today-dev-item" id="todayDevRevisionItem">
+                        <b>🔁 Revision:</b> <span id="todayDevRevisionText">No pending revisions</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 4. TODAY'S MISSIONS TIMELINE -->
+            <div class="section-title-bar">
+                <div>
+                    <h3>🎯 TODAY'S MISSIONS</h3>
+                    <p>Exact Striver DSA problems, college routine, gym, creatine, and development study block.</p>
+                </div>
+                <button class="btn-primary" id="btnOpenAddTask">＋ Add Custom Task</button>
+            </div>
+
+            <div class="timeline-container" id="todayTimelineContainer"></div>
+        </section>
+
+        <!-- VIEW 2: CALENDAR (18 Aug 2026 -> 18 Aug 2028) -->
+        <section id="view-calendar" class="view-section">
+            <div class="calendar-wrapper">
+                <div class="calendar-nav-bar">
+                    <button class="cal-nav-btn" id="calPrevMonth">← Previous</button>
+                    <div class="cal-month-title" id="calMonthLabel">August 2026</div>
+                    <div class="cal-nav-buttons">
+                        <button class="cal-nav-btn" id="calTodayBtn">Today</button>
+                        <button class="cal-nav-btn" id="calNextMonth">Next →</button>
+                    </div>
+                </div>
+
+                <div class="cal-weekday-header">
+                    <span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span>
+                </div>
+
+                <div class="calendar-grid-container" id="calendarGrid"></div>
+
+                <div class="cal-legend-bar">
+                    <div class="legend-item"><span class="legend-dot completed"></span> <span>Completed</span></div>
+                    <div class="legend-item"><span class="legend-dot partial"></span> <span>Partial</span></div>
+                    <div class="legend-item"><span class="legend-dot interrupted"></span> <span>Interrupted / Rescheduled</span></div>
+                    <div class="legend-item"><span class="legend-dot planned"></span> <span>Planned</span></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- VIEW 3: STRIVER DSA A2Z -->
+        <section id="view-dsa" class="view-section">
+            <div class="dsa-hero-stats">
+                <div>
+                    <h3 style="font-size: 20px; font-weight: 800; color: #fff;">Striver A2Z DSA Sheet</h3>
+                    <p style="color: var(--text-secondary); margin-top: 4px;">443 authentic problems starting from Question 1 (Basics) through Graphs & DP.</p>
+                </div>
+                <div class="dsa-prog-bar-wrap">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 12px;">
+                        <span id="dsaHeroSolvedLabel" style="font-weight: 700; color: var(--gold);">0 / 443 Solved</span>
+                        <span id="dsaHeroPctLabel" style="color: var(--text-muted);">0%</span>
+                    </div>
+                    <div class="dsa-prog-bar">
+                        <div class="dsa-prog-bar-fill" id="dsaHeroBarFill" style="width: 0%;"></div>
+                    </div>
+                </div>
+                <a href="https://takeuforward.org/dsa/strivers-a2z-sheet-learn-dsa-a-to-z" target="_blank" rel="noopener" class="btn-primary" style="text-decoration: none;">
+                    Official Sheet ↗
+                </a>
+            </div>
+
+            <!-- Accordion List of All 18 Sections -->
+            <div class="topic-accordion" id="dsaTopicAccordion"></div>
+        </section>
+
+        <!-- VIEW 4: AI STUDY ENGINE & ADAPTIVE TUTOR -->
+        <section id="view-ai-engine" class="view-section"></section>
+
+        <!-- VIEW: MISTAKE BANK & WEAKNESS MAP -->
+        <section id="view-mistakes" class="view-section"></section>
+
+        <!-- VIEW 5: GYM & POST-WORKOUT LIFESTYLE -->
+        <section id="view-food" class="view-section">
+            <div class="hero-banner">
+                <div class="hero-content">
+                    <h3>🥣 Hostel Post-Workout Kitchen</h3>
+                    <p>Nutritious, high-protein recipes crafted around your primary hostel ingredients: <b>Soya Chunks</b> and <b>Chocolate Protein Oats</b>. Rotating automatically every day.</p>
+                </div>
+                <button class="btn-primary" id="btnFoodNewRecipe">
+                    🎲 Roll Another Recipe
+                </button>
+            </div>
+
+            <div class="postworkout-recipe-card" style="margin-top: 20px;">
+                <div class="recipe-header-row">
+                    <div>
+                        <span class="recipe-badge">Featured Recipe</span>
+                        <div class="recipe-name" id="foodViewRecipeName">Masala Soya Oats Power Bowl</div>
+                        <div class="recipe-meta-tags">
+                            <span>⏱ Cook Time: <b id="foodViewRecipeTime">12-15 mins</b></span>
+                            <span>⚡ Difficulty: <b id="foodViewRecipeDiff">Easy</b></span>
+                            <span>💪 High Protein Soya + Oats Combo</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="recipe-body-grid">
+                    <div class="recipe-ingredients">
+                        <h5>Required Ingredients</h5>
+                        <ul id="foodViewRecipeIngredients"></ul>
+                    </div>
+                    <div class="recipe-steps">
+                        <h5>Preparation & Cooking Method</h5>
+                        <ol id="foodViewRecipeSteps"></ol>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section-title-bar">
+                <div>
+                    <h3>All Soya & Protein Oats Recipe Variations</h3>
+                    <p>Quick reference catalog for hostel cooking.</p>
+                </div>
+            </div>
+            <div class="placement-topics-grid" id="allRecipesCatalogGrid"></div>
+        </section>
+
+        <!-- VIEW 6: PLACEMENT HUB & CELEBRATION -->
+        <!-- VIEW 6: PLACEMENT HUB & CELEBRATION -->
+        <section id="view-placement" class="view-section">
+            <div class="placed-achievement-banner" id="placementCelebrationBanner" style="display: none;">
+                <h2>🎉 CONGRATULATIONS BOSS — PLACEMENT ACHIEVED! 🎉</h2>
+                <p style="font-size: 16px; color: var(--text-primary); max-width: 700px; margin: 10px auto;">
+                    Study OS mission complete. All your discipline, DSA practice, and Full-Stack Engineering preparation have paid off.
+                </p>
+                <div class="placed-details" id="placedDetailsContainer"></div>
+            </div>
+
+            <!-- Sunday Weekly Test Alert Banner (Requirement 24) -->
+            <div class="sunday-test-alert-banner" id="sundayTestAlertBanner" style="display: none;">
+                <div class="sunday-test-left">
+                    <span class="sunday-bell">🔔</span>
+                    <div>
+                        <b>📝 WEEKLY TEST READY — SUNDAY REVIEW EXAM</b>
+                        <p>Your 23-question comprehensive review test across DSA, Core CS, SQL & Aptitude is ready.</p>
+                    </div>
+                </div>
+                <button class="btn-primary sunday-start-btn" onclick="PlacementEngine.startWeeklyTest()">
+                    START TEST 🚀
+                </button>
+            </div>
+
+            <div class="placement-hero-card" id="placementNormalHero">
+                <div class="placement-hero-left">
+                    <h2>🎯 PLACEMENT COMMAND CENTER</h2>
+                    <p>Complete roadmaps, verified YouTube courses, System Design deep dives, interactive mock interviews, and weekly exams.</p>
+                </div>
+                <div style="display: flex; gap: 12px; align-items: center;">
+                    <button class="btn-placed-celebration" id="btnTriggerPlaced">
+                        <span>🎉</span>
+                        <span>I GOT PLACED</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- 1. START HERE Guided Recommendation (UX Rule #28) -->
+            <div id="placementStartHereContainer"></div>
+
+            <!-- 2. Placement Readiness Gauge (Requirement 21) -->
+            <div id="placementReadinessContainer"></div>
+
+            <!-- 3. Quick Actions Toolbar (Requirement 23) -->
+            <div class="placement-quick-actions-bar">
+                <div class="quick-actions-title">⚡ Quick Actions</div>
+                <div class="quick-actions-buttons">
+                    <button class="quick-action-btn primary" onclick="PlacementEngine.startGlobalInterviewMode()">
+                        <span>🎤</span> Start Interview
+                    </button>
+                    <button class="quick-action-btn" onclick="PlacementEngine.openSubject('sysdesign', 'sysdesign')">
+                        <span>🏗️</span> System Design
+                    </button>
+                    <button class="quick-action-btn gold" onclick="PlacementEngine.startWeeklyTest()">
+                        <span>📝</span> Weekly Test
+                    </button>
+                    <button class="quick-action-btn" onclick="PlacementEngine.openSubject('dsa', 'roadmap')">
+                        <span>📚</span> Continue Learning
+                    </button>
+                    <button class="quick-action-btn" onclick="PlacementEngine.openBookmarksDrawer()">
+                        <span>⭐</span> Bookmarks
+                    </button>
+                    <button class="quick-action-btn" onclick="PlacementEngine.openTestHistory()">
+                        <span>📊</span> Test History
+                    </button>
+                </div>
+            </div>
+
+            <!-- 4. Global Search Trigger Bar (Requirement 20) -->
+            <div class="placement-search-trigger-bar" onclick="PlacementEngine.openGlobalSearch()">
+                <div class="search-trigger-left">
+                    <span style="font-size: 16px;">🔍</span>
+                    <span>Search DSA problems, subjects, system design, questions, notes...</span>
+                </div>
+                <div class="search-trigger-badge">Press Ctrl+K</div>
+            </div>
+
+            <!-- 5. Active Weak Areas Summary -->
+            <div id="placementWeakAreasSummary"></div>
+
+            <div class="section-title-bar" style="margin-top: 24px;">
+                <div>
+                    <h3>Placement Subject Roadmaps & Learning Hubs</h3>
+                    <p>Click any card to open complete syllabus, verified resources, checklists, and interview question banks.</p>
+                </div>
+            </div>
+
+            <!-- 6. 12 Interactive Subject Cards Grid (Requirement 1, 2, 22) -->
+            <div class="placement-topics-grid" id="placementTopicsGrid"></div>
+        </section>
+
+        <!-- VIEW 7: INTERNSHIP TRACKER -->
+        <section id="view-internship" class="view-section">
+            <div class="internship-controls">
+                <div>
+                    <h3 style="font-size: 20px; font-weight: 800; color: #fff;">💼 Internship Application Tracker</h3>
+                    <p style="color: var(--text-secondary); font-size: 13px; margin-top: 2px;">Track off-campus & on-campus applications, OA dates, and interview stages.</p>
+                </div>
+                <button class="btn-primary" id="btnAddInternship">＋ Add Application</button>
+            </div>
+
+            <div class="internship-table-wrap">
+                <table class="internship-table">
+                    <thead>
+                        <tr>
+                            <th>Company</th>
+                            <th>Role</th>
+                            <th>Date Applied</th>
+                            <th>Status</th>
+                            <th>Link</th>
+                            <th>Notes</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="internshipTableBody"></tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- VIEW 8: ANALYTICS & STREAKS -->
+        <section id="view-stats" class="view-section">
+            <div class="metrics-grid">
+                <div class="metric-card">
+                    <div class="metric-header"><span>Best Streak</span><span>🔥</span></div>
+                    <div class="metric-value" id="statsBestStreak">0</div>
+                    <div class="metric-footer">Consecutive days</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-header"><span>DSA Solved</span><span>🧠</span></div>
+                    <div class="metric-value" id="statsDsaSolved">0</div>
+                    <div class="metric-footer" id="statsDsaSub">0 Easy · 0 Med · 0 Hard</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-header"><span>Study Days</span><span>📅</span></div>
+                    <div class="metric-value" id="statsStudyDays">0</div>
+                    <div class="metric-footer">Days with completed study</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-header"><span>AI Study Sessions</span><span>🤖</span></div>
+                    <div class="metric-value" id="statsAiSessions">0</div>
+                    <div class="metric-footer">Personalized study blocks</div>
+                </div>
+            </div>
+
+            <!-- SECTION: AUTHENTIC STUDY SESSIONS & FOCUS ANALYTICS (Part 13) -->
+            <div class="section-title-bar" style="margin-top: 28px;">
+                <div>
+                    <h3>⏱️ Study Sessions & Focus History</h3>
+                    <p>Accurate study duration, break balance, and category-wise deep work metrics.</p>
+                </div>
+            </div>
+            <div class="metrics-grid" style="margin-bottom: 20px;">
+                <div class="metric-card">
+                    <div class="metric-header"><span>Total Active Focus</span><span>⏱️</span></div>
+                    <div class="metric-value" id="statsTotalStudyTime">0h 0m</div>
+                    <div class="metric-footer" id="statsTotalSessionsCount">0 total sessions completed</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-header"><span>Average Session</span><span>⚡</span></div>
+                    <div class="metric-value" id="statsAvgSessionTime">0m</div>
+                    <div class="metric-footer" id="statsLongestSessionTime">Longest: 0m</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-header"><span>Break Ratio</span><span>☕</span></div>
+                    <div class="metric-value" id="statsBreakRatio">0%</div>
+                    <div class="metric-footer" id="statsTotalBreakTime">0m total break recovery</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-header"><span>Primary Category</span><span>🎯</span></div>
+                    <div class="metric-value" id="statsTopCategory">DSA</div>
+                    <div class="metric-footer" id="statsCategorySpread">Multi-track distribution</div>
+                </div>
+            </div>
+
+            <!-- Recent Study Sessions Log Table -->
+            <div class="calendar-wrapper" style="padding: 20px; margin-bottom: 24px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
+                    <h4 style="margin: 0; font-size: 15px; color: #fff;">Recent Logged Study Sessions</h4>
+                    <span style="font-size: 11px; color: var(--text-muted);">Verified Session Engine Records</span>
+                </div>
+                <div id="statsStudySessionsTable" style="overflow-x: auto;">
+                    <div style="text-align: center; color: var(--text-muted); padding: 24px;">No study sessions recorded yet. Click "Start Studying" on the dashboard to log your first session!</div>
+                </div>
+            </div>
+
+            <div class="section-title-bar" style="margin-top: 28px;">
+                <div>
+                    <h3>14-Day Study Consistency</h3>
+                    <p>Daily completed study tasks history.</p>
+                </div>
+            </div>
+            <div class="calendar-wrapper" style="padding: 20px;">
+                <div id="statsHistoryBars" style="display: flex; align-items: flex-end; gap: 10px; height: 160px; padding-top: 20px;"></div>
+            </div>
+
+            <!-- Lifestyle & Gym Analytics Container -->
+            <div id="lifestyleStatsContainer"></div>
+        </section>
+
+        <!-- VIEW 9: FULL-STACK DEVELOPMENT COMMAND CENTER -->
+        <section id="view-development" class="view-section">
+            <!-- Development Command Center Hero -->
+            <div class="hero-banner dev-hero">
+                <div class="hero-content">
+                    <div class="dev-hero-eyebrow">💻 BOSS FULL-STACK DEVELOPMENT</div>
+                    <h3>Development Command Center</h3>
+                    <p>Master Full-Stack Development from JavaScript to Production. Learn fundamentals, follow exact video playlists, execute hands-on tasks, build production-grade projects, and defend system design decisions in interviews.</p>
+                </div>
+                <div class="progress-ring-box">
+                    <div class="ring-wrapper">
+                        <div class="dev-circle-stat">
+                            <strong id="devOverallPct">0%</strong>
+                            <small id="devOverallRatio">0/0 done</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Quick Action & Search Bar -->
+            <div class="dev-quick-bar">
+                <div class="dev-quick-metrics">
+                    <div class="dev-metric-pill">
+                        <span>🎥 Videos:</span>
+                        <b id="devVideoRatio">0/0 (0%)</b>
+                    </div>
+                    <div class="dev-metric-pill">
+                        <span>🛠 Tasks:</span>
+                        <b id="devTaskRatio">0/0 (0%)</b>
+                    </div>
+                    <div class="dev-metric-pill accent">
+                        <span>🔁 Revision:</span>
+                        <b id="devRevisitCount">0</b>
+                    </div>
+                </div>
+                <div class="dev-quick-actions">
+                    <button class="btn-primary" onclick="DevelopmentEngine.openGlobalSearch()">
+                        🔍 Search Development (Ctrl+K)
+                    </button>
+                </div>
+            </div>
+
+            <!-- Overall Progress Bar -->
+            <div class="dev-overall-bar-card">
+                <div class="dev-overall-bar-header">
+                    <span><b>Overall Development Progression</b> (Verified Completed Items Only)</span>
+                    <span style="font-size: 11px; color: var(--gold);">100% Non-Locking Architecture</span>
+                </div>
+                <div class="dev-tech-prog-bar lg">
+                    <div class="dev-tech-prog-fill" id="devOverallFill" style="width: 0%;"></div>
+                </div>
+            </div>
+
+            <!-- 🎯 STUDY NOW RECOMMENDATION WIDGET -->
+            <div id="devStudyNowContainer" style="margin-top: 20px;"></div>
+
+            <!-- 🗺️ VISUAL INTERACTIVE ROADMAP -->
+            <div class="section-title-bar" style="margin-top: 30px;">
+                <div>
+                    <h3>🗺️ Development Architecture Roadmap</h3>
+                    <p>Recommended full-stack learning progression. <b>Zero locks</b> — explore any technology anytime.</p>
+                </div>
+            </div>
+            <div class="dev-roadmap-container" id="devRoadmapList"></div>
+
+            <!-- 📚 13 INDIVIDUAL TECHNOLOGY SHEETS -->
+            <div class="section-title-bar" style="margin-top: 36px;">
+                <div>
+                    <h3>📚 Technology Curriculum & Sheets</h3>
+                    <p>Individual command sheets for all 13 core technologies with exact course playlists, practical tasks, and interview relevance.</p>
+                </div>
+            </div>
+            <div class="dev-tech-cards-grid" id="devTechCardsGrid"></div>
+
+            <!-- 🚀 PRODUCTION PROJECTS HUB -->
+            <div class="section-title-bar" id="devProjectsSection" style="margin-top: 40px;">
+                <div>
+                    <h3>🚀 Full-Stack Engineering Projects</h3>
+                    <p>8 progressive real-world projects from Beginner to Production Full-Stack SaaS Capstone with interview defense guides.</p>
+                </div>
+            </div>
+            <div class="dev-projects-grid" id="devProjectsList"></div>
+
+            <!-- 🎤 INTERVIEW PREPARATION HUB -->
+            <div class="section-title-bar" id="devInterviewSection" style="margin-top: 40px;">
+                <div>
+                    <h3>🎤 Technical Interview Preparation</h3>
+                    <p>80+ high-yield interview questions across all 13 technologies with expandable technical defenses.</p>
+                </div>
+                <div class="dev-filter-group">
+                    <button class="iq-diff-filter-btn active" data-diff="all" onclick="DevelopmentEngine.setInterviewFilter('difficulty', 'all')">All</button>
+                    <button class="iq-diff-filter-btn" data-diff="easy" onclick="DevelopmentEngine.setInterviewFilter('difficulty', 'easy')">Easy</button>
+                    <button class="iq-diff-filter-btn" data-diff="medium" onclick="DevelopmentEngine.setInterviewFilter('difficulty', 'medium')">Medium</button>
+                    <button class="iq-diff-filter-btn" data-diff="hard" onclick="DevelopmentEngine.setInterviewFilter('difficulty', 'hard')">Hard</button>
+                </div>
+            </div>
+            <div class="dev-interview-container" id="devInterviewList"></div>
+
+            <!-- 🔁 REVISION HUB -->
+            <div class="section-title-bar" id="devRevisionSection" style="margin-top: 40px;">
+                <div>
+                    <h3>🔁 Revision Command Center</h3>
+                    <p>Consolidated review queue of all videos, practical tasks, and interview questions marked <b>Revisit 🔄</b>.</p>
+                </div>
+            </div>
+            <div class="dev-revision-container" id="devRevisionList"></div>
+
+            <!-- 📊 ANALYTICS SECTION -->
+            <div class="section-title-bar" id="devAnalyticsSection" style="margin-top: 40px;">
+                <div>
+                    <h3>📊 Development Analytics & Mastery Breakdown</h3>
+                    <p>Verified progress distribution across all 13 technology stacks.</p>
+                </div>
+            </div>
+            <div class="dev-analytics-card" id="devAnalyticsBreakdown"></div>
+        </section>
+
+    </main>
+</div>
+
+<!-- ==========================================================================
+     MODALS
+     ========================================================================== -->
+
+<!-- 1. Day Detail Modal (Opened by clicking any calendar date) -->
+<div class="modal-overlay" id="dayDetailModal">
+    <div class="modal-window">
+        <div class="modal-header">
+            <div>
+                <h3 id="modalDateTitle">18 August 2026</h3>
+                <span id="modalDateSubtitle" style="font-size: 12px; color: var(--text-muted);">Daily Schedule & Tasks</span>
+            </div>
+            <button class="btn-close-modal" id="btnCloseDayModal">×</button>
+        </div>
+        <div class="modal-body">
+            <!-- Day Recipe Banner inside modal -->
+            <div id="modalDayRecipeBanner" style="background: rgba(245, 197, 24, 0.08); border: 1px solid rgba(245, 197, 24, 0.25); border-radius: var(--radius-sm); padding: 12px 16px; margin-bottom: 16px;">
+                <div style="font-size: 11px; font-weight: 700; color: var(--gold); text-transform: uppercase;">🥣 Assigned Post-Workout Recipe:</div>
+                <b id="modalRecipeName" style="color: #fff; font-size: 13.5px;">Masala Soya Oats Power Bowl</b>
+            </div>
+
+            <div class="day-modal-timeline" id="dayModalTasksList"></div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn-primary" id="btnModalAddCustomTask">＋ Add Task to this Date</button>
+        </div>
+    </div>
+</div>
+
+<!-- 2. Settings & AI Configuration Modal -->
+<div class="modal-overlay" id="notifSettingsModal">
+    <div class="modal-window settings-modal-window" style="width: min(600px, 94vw);">
+        <div class="modal-header">
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <span style="font-size: 20px;">⚙️</span>
+                <div>
+                    <h3 style="margin: 0; font-size: 17px; font-weight: 800; color: #fff;">StudyOS Settings</h3>
+                    <span style="font-size: 11.5px; color: var(--text-muted);">AI Engine, Notifications & Security</span>
+                </div>
+            </div>
+            <button class="btn-close-modal" id="btnCloseNotifSettings">×</button>
+        </div>
+
+        <!-- Subtabs Bar -->
+        <div class="settings-subtabs-bar">
+            <button type="button" class="settings-subtab-btn active" id="btnSettingsTabAi" onclick="App.switchSettingsTab('ai')">
+                <span>🤖</span> AI / Gemini
+            </button>
+            <button type="button" class="settings-subtab-btn" id="btnSettingsTabNotif" onclick="App.switchSettingsTab('notif')">
+                <span>🔔</span> Notifications
+            </button>
+            <button type="button" class="settings-subtab-btn" id="btnSettingsTabPrivacy" onclick="App.switchSettingsTab('privacy')">
+                <span>🔒</span> Privacy & Security
+            </button>
+        </div>
+
+        <div class="modal-body" style="padding: 20px 24px;">
+            <!-- SUBTAB 1: AI / GEMINI -->
+            <div id="settingsSectionAi" class="settings-subtab-content active">
+                <div class="gemini-header-row">
+                    <div class="gemini-title-group">
+                        <div class="gemini-title-label">🤖 Gemini AI</div>
+                        <div class="gemini-sub-label">Adaptive Study Tutor & Scheduling Intelligence</div>
+                    </div>
+                    <div id="geminiConnectionPill" class="gemini-connection-pill not-connected">
+                        <span class="pill-dot"></span>
+                        <span id="geminiStatusBadgeText">Not Connected</span>
+                    </div>
+                </div>
+
+                <!-- BYOK Status & Key Card -->
+                <div class="settings-card gemini-card">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                        <div>
+                            <span class="settings-label" style="margin: 0; font-weight: 700; font-size: 12px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px;">
+                                Your Gemini Key
+                            </span>
+                        </div>
+                        <div id="geminiConfigBadge" class="byok-status-badge not-configured">
+                            <span class="pill-dot"></span>
+                            <span id="geminiConfigBadgeText">Not Configured</span>
+                        </div>
+                    </div>
+
+                    <!-- Configured State Details (visible when key is saved) -->
+                    <div id="geminiConfiguredBox" style="display: none;">
+                        <div style="display: flex; align-items: center; justify-content: space-between; background: rgba(0,0,0,0.3); padding: 10px 14px; border-radius: var(--radius-sm); border: 1px solid var(--border-subtle); margin-bottom: 14px;">
+                            <div>
+                                <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 2px;">ACTIVE CREDENTIAL</div>
+                                <code id="geminiMaskedKeyDisplay" style="font-family: 'JetBrains Mono', monospace; font-size: 13px; color: var(--cyan); font-weight: 600;">••••••••••••••••••••</code>
+                            </div>
+                            <span class="secure-badge" style="background: rgba(16, 185, 129, 0.12); color: var(--emerald); border: 1px solid rgba(16, 185, 129, 0.25); font-size: 11px; padding: 3px 8px; border-radius: 4px;">🔒 Encrypted (AES-256-GCM)</span>
+                        </div>
+
+                        <!-- Configured Action Buttons -->
+                        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                            <button type="button" class="btn-primary-sm" id="btnTestConfiguredKey" onclick="App.testGeminiConnection()">
+                                ⚡ Test Connection
+                            </button>
+                            <button type="button" class="btn-ghost-sm" id="btnStartReplaceKey" onclick="App.toggleReplaceKeyMode(true)">
+                                🔄 Replace Key
+                            </button>
+                            <button type="button" class="btn-danger-sm" id="btnRemoveKey" onclick="App.removeGeminiKey()">
+                                🗑️ Remove Key
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Input Form (shown when not configured OR during replacement) -->
+                    <div id="geminiInputForm" style="display: block;">
+                        <div style="margin-bottom: 8px; font-size: 11.5px; color: var(--text-muted);" id="geminiInputPrompt">
+                            Enter your personal Google Gemini API key:
+                        </div>
+                        <div class="gemini-key-input-row">
+                            <div class="gemini-key-input-wrapper">
+                                <input type="password" class="form-input gemini-key-input" id="inputGeminiKey" placeholder="AIzaSy••••••••••••••••••••••••••••••••" autocomplete="off" spellcheck="false">
+                                <button type="button" class="btn-ghost-sm" id="btnToggleKeyVis" onclick="App.toggleGeminiKeyVis()" title="Show/Hide Key">👁️</button>
+                            </div>
+                        </div>
+
+                        <div style="display: flex; gap: 10px; margin-top: 12px; align-items: center;">
+                            <button type="button" class="btn-test-connection" id="btnSaveAndTestKey" onclick="App.saveAndTestGeminiKey()">
+                                <span class="btn-test-icon" id="btnSaveTestIcon">⚡</span>
+                                <span id="btnSaveTestLabel">Save & Test Connection</span>
+                            </button>
+                            <button type="button" class="btn-ghost-sm" id="btnCancelReplaceKey" style="display: none;" onclick="App.toggleReplaceKeyMode(false)">
+                                Cancel
+                            </button>
+                        </div>
+                    </div>
+
+                    <p style="font-size: 11.5px; color: var(--text-muted); margin: 12px 0 0 0; line-height: 1.5;">
+                        🔒 <b>Security Guarantee:</b> Stored server-side with AES-256-GCM authenticated encryption tied strictly to your user session. Never exposed to browser storage, JavaScript bundles, or other users.
+                    </p>
+                </div>
+
+                <!-- Test Result Container -->
+                <div id="geminiTestResultBox" style="display: none; margin-top: 14px;">
+                    <!-- Injected dynamically: success or failure card with collapsible technical details -->
+                </div>
+
+                <!-- Connection History / Metadata -->
+                <div class="gemini-meta-history" style="margin-top: 16px;">
+                    <div class="gemini-meta-header">Connection Metadata</div>
+                    <div class="gemini-meta-grid">
+                        <div class="gemini-meta-item">
+                            <span class="meta-label">Model:</span>
+                            <span class="meta-val" id="metaModel">--</span>
+                        </div>
+                        <div class="gemini-meta-item">
+                            <span class="meta-label">Latency:</span>
+                            <span class="meta-val" id="metaLatency">--</span>
+                        </div>
+                        <div class="gemini-meta-item">
+                            <span class="meta-label">Last checked:</span>
+                            <span class="meta-val" id="metaLastChecked">Never</span>
+                        </div>
+                        <div class="gemini-meta-item">
+                            <span class="meta-label">Last error:</span>
+                            <span class="meta-val warning" id="metaLastError">None</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SUBTAB 2: NOTIFICATIONS -->
+            <div id="settingsSectionNotif" class="settings-subtab-content" style="display: none;">
+                <div style="background: var(--panel-solid); border: 1px solid var(--border-line); border-radius: var(--radius-sm); padding: 14px; margin-bottom: 16px; font-size: 12.5px; color: var(--text-secondary); line-height: 1.5;">
+                    ℹ️ <b>Reliability Note:</b> Browser notifications require permission. Depending on your OS and browser, the web application tab may need to remain open in the background to trigger reminders.
+                </div>
+
+                <div style="margin-bottom: 18px;">
+                    <button class="btn-primary" id="btnRequestNotifPerm" style="width: 100%; justify-content: center;">
+                        🔔 Enable / Check Browser Permission
+                    </button>
+                </div>
+
+                <div style="display: flex; flex-direction: column; gap: 14px;">
+                    <label style="display: flex; align-items: center; justify-content: space-between; cursor: pointer;">
+                        <span>🧠 Morning DSA Reminder (06:45 AM)</span>
+                        <input type="checkbox" id="checkNotifyDsa" style="width: 18px; height: 18px; accent-color: var(--gold);" checked>
+                    </label>
+                    <label style="display: flex; align-items: center; justify-content: space-between; cursor: pointer;">
+                        <span>💻 Night Development Reminder (11:00 PM)</span>
+                        <input type="checkbox" id="checkNotifyDev" style="width: 18px; height: 18px; accent-color: var(--gold);" checked>
+                    </label>
+                    <label style="display: flex; align-items: center; justify-content: space-between; cursor: pointer;">
+                        <span>🤖 AI Daily Plan & Study Alerts</span>
+                        <input type="checkbox" id="checkNotifyAiPlan" style="width: 18px; height: 18px; accent-color: var(--gold);" checked>
+                    </label>
+                    <label style="display: flex; align-items: center; justify-content: space-between; cursor: pointer;">
+                        <span>💊 Daily Creatine Reminder (10:00 PM)</span>
+                        <input type="checkbox" id="checkNotifyCreatine" style="width: 18px; height: 18px; accent-color: var(--gold);" checked>
+                    </label>
+                </div>
+
+                <div style="margin-top: 20px; display: flex; justify-content: flex-end;">
+                    <button class="btn-primary" id="btnSaveNotifSettings">Save Notification Preferences</button>
+                </div>
+            </div>
+
+            <!-- SUBTAB 3: PRIVACY & SECURITY -->
+            <div id="settingsSectionPrivacy" class="settings-subtab-content" style="display: none;">
+                <div class="ai-privacy-box" style="padding: 16px; background: rgba(255,255,255,0.02); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm);">
+                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+                        <span style="font-size: 18px;">🔒</span>
+                        <b style="color: var(--gold); font-size: 13.5px;">Privacy & Data Minimization Architecture</b>
+                    </div>
+                    <p style="font-size: 12px; color: var(--text-muted); line-height: 1.5; margin-bottom: 14px;">
+                        StudyOS adheres strictly to local-first and zero-knowledge privacy standards. External AI services (Google Gemini) only receive explicitly formatted study prompts via the secure local server proxy.
+                    </p>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; font-size: 12px;">
+                        <div style="background: rgba(16, 185, 129, 0.05); border: 1px solid rgba(16, 185, 129, 0.2); border-radius: var(--radius-sm); padding: 12px;">
+                            <span style="color: var(--emerald); font-weight: 700; display: block; margin-bottom: 6px;">✔ What StudyOS AI uses:</span>
+                            <ul style="margin: 0; color: var(--text-secondary); padding-left: 16px; line-height: 1.6;">
+                                <li>Study session duration</li>
+                                <li>Task completion & streaks</li>
+                                <li>DSA & Dev progression</li>
+                                <li>Assessment scores & mistakes</li>
+                            </ul>
+                        </div>
+                        <div style="background: rgba(244, 63, 94, 0.05); border: 1px solid rgba(244, 63, 94, 0.2); border-radius: var(--radius-sm); padding: 12px;">
+                            <span style="color: var(--rose); font-weight: 700; display: block; margin-bottom: 6px;">✖ What AI NEVER collects:</span>
+                            <ul style="margin: 0; color: var(--text-secondary); padding-left: 16px; line-height: 1.6;">
+                                <li>No microphone or audio</li>
+                                <li>No webcam / video feeds</li>
+                                <li>No screen recordings</li>
+                                <li>No private chats or browsing</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-size: 11.5px; color: var(--text-muted);">BOSS Study OS · Secure Local Command</span>
+            <button class="action-btn-ghost" onclick="document.getElementById('notifSettingsModal').classList.remove('active')">Close</button>
+        </div>
+    </div>
+</div>
+
+<!-- 3. Add Custom Task Modal -->
+<div class="modal-overlay" id="customTaskModal">
+    <div class="modal-window" style="width: min(480px, 100%);">
+        <div class="modal-header">
+            <h3>Add Custom Task</h3>
+            <button class="btn-close-modal" id="btnCloseTaskModal">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group">
+                <label>Task Title</label>
+                <input type="text" class="form-input" id="inputTaskTitle" placeholder="e.g. Binary Search PYQ Practice">
+            </div>
+            <div class="form-group">
+                <label>Category</label>
+                <select class="form-select" id="inputTaskCategory">
+                    <option value="DSA">DSA Practice</option>
+                    <option value="DEV">Full-Stack Development</option>
+                    <option value="COLLEGE">College Exam / Study</option>
+                    <option value="PROJECT">Project Work</option>
+                    <option value="REVISION">Revision</option>
+                    <option value="GENERAL">General</option>
+                </select>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                <div class="form-group">
+                    <label>Start Time</label>
+                    <input type="time" class="form-input" id="inputTaskStart" value="15:00">
+                </div>
+                <div class="form-group">
+                    <label>End Time</label>
+                    <input type="time" class="form-input" id="inputTaskEnd" value="16:00">
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Notes (Optional)</label>
+                <textarea class="form-textarea" id="inputTaskNotes" rows="2" placeholder="Details..."></textarea>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn-primary" id="btnSaveCustomTask">Save Task</button>
+        </div>
+    </div>
+</div>
+
+<!-- 4. Add / Edit Internship Modal -->
+<div class="modal-overlay" id="internshipModal">
+    <div class="modal-window" style="width: min(500px, 100%);">
+        <div class="modal-header">
+            <h3>Add Internship Application</h3>
+            <button class="btn-close-modal" id="btnCloseInternModal">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group">
+                <label>Company Name</label>
+                <input type="text" class="form-input" id="inputInternCompany" placeholder="e.g. Google / Microsoft / Amazon">
+            </div>
+            <div class="form-group">
+                <label>Role</label>
+                <input type="text" class="form-input" id="inputInternRole" value="Software Development Engineer Intern">
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                <div class="form-group">
+                    <label>Date Applied</label>
+                    <input type="date" class="form-input" id="inputInternDate">
+                </div>
+                <div class="form-group">
+                    <label>Status</label>
+                    <select class="form-select" id="inputInternStatus">
+                        <option value="SAVED">Saved</option>
+                        <option value="APPLIED" selected>Applied</option>
+                        <option value="OA">Online Assessment (OA)</option>
+                        <option value="INTERVIEW">Interview Round</option>
+                        <option value="SELECTED">Selected 🎉</option>
+                        <option value="REJECTED">Rejected</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Job Link / Referral</label>
+                <input type="url" class="form-input" id="inputInternLink" placeholder="https://careers.google.com/...">
+            </div>
+            <div class="form-group">
+                <label>Notes</label>
+                <textarea class="form-textarea" id="inputInternNotes" rows="2" placeholder="Referral info, recruiter contact, OA date..."></textarea>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn-primary" id="btnSaveInternship">Save Application</button>
+        </div>
+    </div>
+</div>
+
+<!-- 5. Placement Confirmation Modal -->
+<div class="modal-overlay" id="placementConfirmModal">
+    <div class="modal-window" style="width: min(460px, 100%);">
+        <div class="modal-header">
+            <h3>🎉 Placement Achievement</h3>
+            <button class="btn-close-modal" id="btnClosePlacementModal">×</button>
+        </div>
+        <div class="modal-body">
+            <p style="font-size: 14px; color: var(--text-primary); margin-bottom: 16px;">
+                <b>Are you sure you got placed?</b><br>
+                This will unlock the celebratory command state and complete your Study OS mission!
+            </p>
+            <div class="form-group">
+                <label>Company Name</label>
+                <input type="text" class="form-input" id="inputPlacedCompany" placeholder="e.g. Google, Microsoft, Atlassian">
+            </div>
+            <div class="form-group">
+                <label>Role</label>
+                <input type="text" class="form-input" id="inputPlacedRole" value="Software Development Engineer">
+            </div>
+            <div class="form-group">
+                <label>Package (Optional)</label>
+                <input type="text" class="form-input" id="inputPlacedPackage" placeholder="e.g. 45 LPA">
+            </div>
+            <div class="form-group">
+                <label>Personal Victory Note</label>
+                <textarea class="form-textarea" id="inputPlacedNote" rows="2" placeholder="Consistency won. Hard work paid off."></textarea>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="action-btn-ghost" id="btnCancelPlacement">Cancel</button>
+            <button class="btn-primary" id="btnConfirmPlacement">YES, I GOT PLACED! 🎉</button>
+        </div>
+    </div>
+</div>
+
+<!-- 6. Subject Learning Detail Modal -->
+<div class="modal-overlay" id="subjectDetailModal">
+    <div class="modal-window subject-detail-modal-window">
+        <div class="modal-header subject-modal-header">
+            <div class="subject-header-info">
+                <span class="subject-modal-icon" id="subjectModalIcon">🧠</span>
+                <div>
+                    <h3 id="subjectModalTitle">Subject Name</h3>
+                    <p id="subjectModalSubtitle">Subtitle</p>
+                </div>
+            </div>
+            <button class="btn-close-modal" onclick="PlacementEngine.closeSubjectModal()">×</button>
+        </div>
+        <div class="subject-tabs-nav">
+            <button class="subject-tab-btn active" data-tab="roadmap" onclick="PlacementEngine.switchSubjectTab('roadmap')">📋 Topic Roadmap</button>
+            <button class="subject-tab-btn" id="tabBtnSystemDesign" style="display: none;" data-tab="sysdesign" onclick="PlacementEngine.switchSubjectTab('sysdesign')">🏗️ System Design Deep Dive</button>
+            <button class="subject-tab-btn" data-tab="overview" onclick="PlacementEngine.switchSubjectTab('overview')">🎯 What I Need to Learn</button>
+            <button class="subject-tab-btn" data-tab="resources" onclick="PlacementEngine.switchSubjectTab('resources')">⭐ YouTube & Notes</button>
+            <button class="subject-tab-btn" data-tab="questions" onclick="PlacementEngine.switchSubjectTab('questions')">💡 Interview Questions</button>
+            <button class="subject-tab-btn" data-tab="notes" onclick="PlacementEngine.switchSubjectTab('notes')">📝 My Notes</button>
+            <button class="subject-tab-btn" data-tab="revision" onclick="PlacementEngine.switchSubjectTab('revision')">🔁 Revision</button>
+        </div>
+        <div class="modal-body subject-modal-body" id="subjectModalBody"></div>
+    </div>
+</div>
+
+<!-- 7. Interactive System Design Interview Modal -->
+<div class="modal-overlay" id="systemDesignInterviewModal">
+    <div class="modal-window sd-interview-modal-window">
+        <div class="modal-header">
+            <h3 id="sdModalTitle">System Design Interview</h3>
+            <button class="btn-close-modal" onclick="PlacementEngine.closeSdInterviewModal()">×</button>
+        </div>
+        <div class="modal-body" id="sdModalBody"></div>
+        <div class="modal-footer" id="sdModalFooter"></div>
+    </div>
+</div>
+
+<!-- 8. Global Interview Flashcard Modal -->
+<div class="modal-overlay" id="globalInterviewModal">
+    <div class="modal-window" style="width: min(680px, 100%);">
+        <div class="modal-header">
+            <h3>🎤 Interactive Interview Flashcards</h3>
+            <button class="btn-close-modal" onclick="PlacementEngine.closeGlobalInterviewModal()">×</button>
+        </div>
+        <div class="modal-body" id="interviewModalBody"></div>
+        <div class="modal-footer" id="interviewModalFooter"></div>
+    </div>
+</div>
+
+<!-- 9. Dedicated Full-Screen Test Engine -->
+<div id="weeklyTestFullScreen" class="weekly-test-fullscreen-overlay" style="display: none;">
+    <!-- Top Bar -->
+    <header class="test-fullscreen-topbar">
+        <div class="topbar-left">
+            <button class="test-exit-btn" onclick="TestEngine.exitTest()" title="Return to Dashboard (Progress Saved)">
+                ← Back to Test Dashboard
+            </button>
+            <div class="test-brand-badge">BOSS STUDY OS</div>
+            <div class="test-title-meta">
+                <span class="test-header-name">Weekly Assessment Engine</span>
+                <span id="testHeaderDate" class="test-header-date">Sunday Review</span>
+            </div>
+        </div>
+
+        <div class="topbar-center">
+            <span id="testQuestionCounter" class="test-q-counter-pill">Question 1 / 23</span>
+            <div class="test-live-stats-bar">
+                <span class="stat-indicator answered" title="Answered">🟢 <b id="testStatAnswered">0</b></span>
+                <span class="stat-indicator unanswered" title="Unanswered">⚪ <b id="testStatUnanswered">23</b></span>
+                <span class="stat-indicator marked" title="Marked for Review">🟣 <b id="testStatMarked">0</b></span>
+            </div>
+        </div>
+
+        <div class="topbar-right">
+            <span id="testAutosaveBadge" class="autosave-indicator">Saved ✓</span>
+            <div class="test-timer-chip">
+                <span>⏱️</span>
+                <span id="testTimerText">75:00</span>
+            </div>
+            <button class="btn-submit-exam-danger" onclick="TestEngine.confirmSubmitTest()">
+                SUBMIT TEST ✓
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Test Workbench -->
+    <main class="test-fullscreen-main">
+        <div class="test-workbench-content" id="testQuestionWorkbench">
+            <!-- Populated dynamically by TestEngine -->
+        </div>
+
+        <!-- Question Palette Sidebar -->
+        <aside class="test-palette-sidebar" id="testPaletteSidebar">
+            <div class="palette-header">
+                <span>Question Palette</span>
+            </div>
+            <div class="palette-grid" id="testPaletteGrid"></div>
+            <div class="palette-legend-list">
+                <div class="legend-row"><span class="palette-legend-dot current"></span> Current</div>
+                <div class="legend-row"><span class="palette-legend-dot answered"></span> Answered</div>
+                <div class="legend-row"><span class="palette-legend-dot unanswered"></span> Unanswered</div>
+                <div class="legend-row"><span class="palette-legend-dot marked"></span> Marked for Review</div>
+                <div class="legend-row"><span class="palette-legend-dot answered-marked"></span> Answered + Marked</div>
+            </div>
+        </aside>
+    </main>
+
+    <!-- Bottom Navigation Footer -->
+    <footer class="test-fullscreen-footer">
+        <div class="footer-left">
+            <button id="btnPrevQuestion" class="action-btn-ghost" onclick="TestEngine.prevQuestion()">
+                ← Previous
+            </button>
+            <button id="btnMarkReview" class="action-btn-ghost purple" onclick="TestEngine.toggleMarkReview()">
+                🟣 Mark for Review
+            </button>
+        </div>
+
+        <div class="footer-shortcuts-legend">
+            <span><kbd>Ctrl</kbd>+<kbd>Enter</kbd> Run</span>
+            <span><kbd>Alt</kbd>+<kbd>→</kbd> Next</span>
+            <span><kbd>Alt</kbd>+<kbd>←</kbd> Prev</span>
+            <span><kbd>Alt</kbd>+<kbd>M</kbd> Review</span>
+        </div>
+
+        <div class="footer-right">
+            <button id="btnNextQuestion" class="action-btn-ghost" onclick="TestEngine.nextQuestion()" style="margin-right: 8px;">
+                Next →
+            </button>
+            <button id="btnSaveAndNext" class="btn-primary" onclick="TestEngine.saveAndNext()">
+                Save & Next →
+            </button>
+        </div>
+    </footer>
+</div>
+
+<!-- Pre-Test Syllabus Boundary Modal -->
+<div class="modal-overlay" id="preTestBoundaryModal">
+    <div class="modal-window" style="width: min(760px, 95vw); max-height: 90vh; overflow-y: auto;">
+        <div class="modal-header">
+            <h3>📝 Sunday Weekly Test — Syllabus Boundary & Setup</h3>
+            <button class="btn-close-modal" onclick="TestEngine.closePreTestModal()">×</button>
+        </div>
+        <div class="modal-body" id="preTestBoundaryContent"></div>
+        <div class="modal-footer" style="display: flex; justify-content: space-between;">
+            <button class="action-btn-ghost" onclick="TestEngine.closePreTestModal()">Cancel</button>
+            <button class="btn-primary" onclick="TestEngine.startGeneratedTest()">
+                Launch Full-Screen Exam 🚀
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Anti-Accident Submit Confirmation Modal -->
+<div class="modal-overlay" id="testSubmitConfirmModal">
+    <div class="modal-window" style="width: min(480px, 92vw);">
+        <div class="modal-header">
+            <h3>⚠️ Submit Weekly Test?</h3>
+            <button class="btn-close-modal" onclick="TestEngine.closeConfirmModal()">×</button>
+        </div>
+        <div class="modal-body">
+            <p style="font-size: 14.5px; color: var(--text-primary); margin-top: 0;">
+                Are you sure you want to finalize and submit your test? You will NOT be able to modify your answers once submitted.
+            </p>
+            <div class="submit-summary-box">
+                <div class="sub-stat-row">
+                    <span>🟢 Answered Questions:</span>
+                    <b id="confirmAnsCount">0</b>
+                </div>
+                <div class="sub-stat-row">
+                    <span>⚪ Unanswered Questions:</span>
+                    <b id="confirmUnansCount">0</b>
+                </div>
+                <div class="sub-stat-row">
+                    <span>🟣 Marked for Review:</span>
+                    <b id="confirmMarkedCount">0</b>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 10px;">
+            <button class="action-btn-ghost" onclick="TestEngine.closeConfirmModal()">Return to Test</button>
+            <button class="btn-primary danger" onclick="TestEngine.finalizeSubmission(false)">Confirm & Submit ✓</button>
+        </div>
+    </div>
+</div>
+
+<!-- 10. Weekly Test Analysis Dashboard Modal -->
+<div class="modal-overlay" id="testAnalysisModal">
+    <div class="modal-window" style="width: min(960px, 95vw); max-height: 92vh; overflow-y: auto;">
+        <div class="modal-header">
+            <h3>📊 Weekly Performance & Review Analysis</h3>
+            <button class="btn-close-modal" onclick="TestEngine.closeTestAnalysisModal()">×</button>
+        </div>
+        <div class="modal-body" id="testAnalysisModalBody"></div>
+        <div class="modal-footer">
+            <button class="btn-primary" onclick="TestEngine.closeTestAnalysisModal()">Done & Continue Study ✓</button>
+        </div>
+    </div>
+</div>
+
+<!-- 11. Test History & Trends Modal -->
+<div class="modal-overlay" id="testHistoryModal">
+    <div class="modal-window" style="width: min(720px, 95vw); max-height: 90vh; overflow-y: auto;">
+        <div class="modal-header">
+            <h3>📊 Sunday Test History & Trends</h3>
+            <button class="btn-close-modal" onclick="TestEngine.closeTestHistoryModal()">×</button>
+        </div>
+        <div class="modal-body" id="testHistoryList"></div>
+    </div>
+</div>
+
+<!-- 12. Bookmarks Modal -->
+<div class="modal-overlay" id="bookmarksModal">
+    <div class="modal-window" style="width: min(650px, 100%);">
+        <div class="modal-header">
+            <h3>⭐ Saved Bookmarks</h3>
+            <button class="btn-close-modal" onclick="PlacementEngine.closeBookmarksDrawer()">×</button>
+        </div>
+        <div class="modal-body" id="bookmarksList"></div>
+    </div>
+</div>
+
+<!-- 13. Global Search Modal -->
+<div class="modal-overlay" id="globalSearchModal">
+    <div class="modal-window" style="width: min(680px, 100%);">
+        <div class="modal-header">
+            <h3>🔍 Global Search — BOSS Placement OS</h3>
+            <button class="btn-close-modal" onclick="PlacementEngine.closeGlobalSearch()">×</button>
+        </div>
+        <div class="modal-body">
+            <input type="text" class="form-input" id="globalSearchInput" placeholder="Search DSA, DBMS, OS, System Design, Questions, Notes..." oninput="PlacementEngine.onSearchInput(this.value)">
+            <div class="search-results-list" id="globalSearchResults" style="margin-top: 16px; max-height: 400px; overflow-y: auto;"></div>
+        </div>
+    </div>
+</div>
+
+<!-- ==========================================================================
+     DEVELOPMENT MODULE MODALS
+     ========================================================================== -->
+
+<!-- 1. Dedicated Technology Sheet Modal / Drawer -->
+<div class="modal-overlay" id="devTechSheetModal">
+    <div class="modal-window dev-sheet-modal-window">
+        <div class="modal-header dev-sheet-header">
+            <div class="dev-sheet-header-left">
+                <span class="dev-sheet-icon" id="techSheetIcon">⚡</span>
+                <div>
+                    <h3 id="techSheetTitle" style="margin: 0; font-size: 20px;">JavaScript</h3>
+                    <span id="techSheetTagline" style="font-size: 12px; color: var(--text-secondary);">Core Runtime</span>
+                </div>
+            </div>
+            <button class="btn-close-modal" onclick="DevelopmentEngine.closeTechSheet()">×</button>
+        </div>
+
+        <!-- Tech Sheet Navigation Sub-Tabs -->
+        <div class="dev-sheet-tabs-bar">
+            <button class="dev-tab-btn" data-tab="overview" onclick="DevelopmentEngine.switchTechTab('overview')">
+                💡 Overview & Syllabus
+            </button>
+            <button class="dev-tab-btn active" data-tab="playlist" onclick="DevelopmentEngine.switchTechTab('playlist')">
+                🎥 Video Playlist (Exact Sequence)
+            </button>
+            <button class="dev-tab-btn" data-tab="tasks" onclick="DevelopmentEngine.switchTechTab('tasks')">
+                🛠 Practical Tasks
+            </button>
+            <button class="dev-tab-btn" data-tab="interview" onclick="DevelopmentEngine.switchTechTab('interview')">
+                🎤 Interview Relevance
+            </button>
+            <button class="dev-tab-btn" data-tab="notes" onclick="DevelopmentEngine.switchTechTab('notes')">
+                📝 Personal Notes
+            </button>
+        </div>
+
+        <!-- Tech Sheet Body Container -->
+        <div class="modal-body dev-sheet-body" id="techSheetContentBody"></div>
+    </div>
+</div>
+
+<!-- 2. Video Notes Modal -->
+<div class="modal-overlay" id="devVideoNotesModal">
+    <div class="modal-window" style="width: min(560px, 95vw);">
+        <div class="modal-header">
+            <h3 id="devVideoNotesModalTitle" style="font-size: 15px; font-weight: 700;">Video Notes</h3>
+            <button class="btn-close-modal" onclick="DevelopmentEngine.closeNotesModal()">×</button>
+        </div>
+        <div class="modal-body">
+            <p style="color: var(--text-muted); font-size: 12.5px; margin-top: 0;">
+                Capture personal code snippets, edge cases, formulas, or key reminders for this video lesson.
+            </p>
+            <textarea id="devVideoNotesTextarea" class="form-input" rows="8" placeholder="Type your personal markdown notes here..."></textarea>
+        </div>
+        <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 10px;">
+            <button class="action-btn-ghost" onclick="DevelopmentEngine.closeNotesModal()">Cancel</button>
+            <button class="btn-primary" id="btnSaveVideoNotes">Save Notes ✓</button>
+        </div>
+    </div>
+</div>
+
+<!-- 3. Development Global Search Modal -->
+<div class="modal-overlay" id="devSearchModal">
+    <div class="modal-window" style="width: min(680px, 95vw);">
+        <div class="modal-header">
+            <h3>🔍 Search Full-Stack Development</h3>
+            <button class="btn-close-modal" onclick="DevelopmentEngine.closeSearchModal()">×</button>
+        </div>
+        <div class="modal-body">
+            <input type="text" class="form-input" id="devSearchInput" placeholder="Search across videos, concepts, practical tasks, projects, or interview Q&A..." oninput="DevelopmentEngine.onSearchInput(this.value)">
+            <div class="dev-search-results-list" id="devSearchResults" style="margin-top: 16px; max-height: 420px; overflow-y: auto;"></div>
+        </div>
+    </div>
+</div>
+
+<!-- ==========================================================================
+     STUDY SESSION MODALS & DISTRACTION-FREE OVERLAY
+     ========================================================================== -->
+
+<!-- 1. Setup Modal: What Are You Studying? + Camera Opt-In -->
+<div class="modal-overlay" id="studySessionSetupModal">
+    <div class="modal-window" style="width: min(620px, 95vw);">
+        <!-- Step 1 & 2: Category & Topic Selection -->
+        <div id="studySetupStep1">
+            <div class="modal-header">
+                <div>
+                    <span style="color: var(--cyan); font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;">Setup Study Session</span>
+                    <h3 style="margin-top: 2px;">What are you studying?</h3>
+                </div>
+                <button class="btn-close-modal" onclick="StudySessionEngine.closeSetupModal()">×</button>
+            </div>
+            <div class="modal-body">
+                <p style="color: var(--text-muted); font-size: 13px; margin-top: 0; margin-bottom: 14px;">
+                    Select your focus track. StudyOS prepares your timers, learner profile context, and analytics tracking.
+                </p>
+
+                <!-- Category Cards Grid (NO GATE!) -->
+                <div class="study-category-grid" id="studyCategoryPills"></div>
+
+                <!-- Subject & Topic Dropdowns -->
+                <div style="margin-top: 18px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                    <div>
+                        <label style="display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; font-weight: 600;">Subject / Track</label>
+                        <select id="studySubjectSelect" class="form-input" onchange="StudySessionEngine.updateTopicsForSelectedSubject()"></select>
+                        <input type="text" id="studyCustomSubjectInput" class="form-input" placeholder="Type custom subject..." style="display: none; margin-top: 6px;">
+                    </div>
+                    <div>
+                        <label style="display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; font-weight: 600;">Topic / Module</label>
+                        <select id="studyTopicSelect" class="form-input" onchange="StudySessionEngine.onTopicChange()"></select>
+                        <input type="text" id="studyCustomTopicInput" class="form-input" placeholder="Type custom topic..." style="display: none; margin-top: 6px;">
+                    </div>
+                </div>
+
+                <!-- Optional Task Link -->
+                <div style="margin-top: 14px;" id="studyTaskSelectContainer">
+                    <label style="display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; font-weight: 600;">Optional: Link to Today's Task</label>
+                    <select id="studyTaskSelect" class="form-input"></select>
+                </div>
+            </div>
+            <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center;">
+                <button class="action-btn-ghost" onclick="StudySessionEngine.closeSetupModal()">Cancel</button>
+                <button class="btn-primary" onclick="StudySessionEngine.goToCameraPermissionStep()">
+                    <span>Start Study Session</span>
+                    <span>→</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Step 3: Camera Permission & Privacy (Part 3) -->
+        <div id="studySetupStep3" style="display: none;">
+            <div class="modal-header">
+                <div>
+                    <span style="color: var(--gold); font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;">Privacy & Camera Opt-In</span>
+                    <h3 style="margin-top: 2px;">StudyOS Camera Monitoring</h3>
+                </div>
+                <button class="btn-close-modal" onclick="StudySessionEngine.closeSetupModal()">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="camera-optin-card">
+                    <div style="font-size: 36px; margin-bottom: 12px;">📷</div>
+                    <h4 style="margin: 0 0 8px 0; font-size: 16px; color: #fff;">StudyOS can use your camera during this study session</h4>
+                    <p style="color: var(--text-muted); font-size: 13px; line-height: 1.5; margin: 0 0 16px 0;">
+                        Optional workspace presence detection helps track unbroken focus intervals and alerts you if you drift away from your desk.
+                    </p>
+                    <div class="camera-privacy-checklist">
+                        <div class="privacy-item">✓ <b>Active session only:</b> The camera is active strictly while this study session runs.</div>
+                        <div class="privacy-item">✓ <b>Stop monitoring anytime:</b> One-click camera toggle inside the study screen.</div>
+                        <div class="privacy-item">✓ <b>No recordings saved:</b> Zero video, images, or frames are ever uploaded or stored.</div>
+                        <div class="privacy-item">✓ <b>No microphone access:</b> Audio is never requested or enabled.</div>
+                        <div class="privacy-item">✓ <b>100% Optional:</b> You can continue without camera if you choose.</div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center; gap: 10px;">
+                <button class="action-btn-ghost" onclick="StudySessionEngine.setSetupStep(1)">← Back</button>
+                <div style="display: flex; gap: 10px;">
+                    <button class="action-btn-ghost" onclick="StudySessionEngine.startWithoutCamera()">
+                        ➡ Continue Without Camera
+                    </button>
+                    <button class="btn-primary" onclick="StudySessionEngine.startWithCamera()" style="background: linear-gradient(135deg, var(--cyan), var(--emerald));">
+                        📷 Enable Camera & Start
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 2. Distraction-Free Study Mode Overlay (Part 4) -->
+<div class="study-session-overlay" id="studySessionOverlay">
+    <div class="study-overlay-inner">
+        <!-- Top Bar -->
+        <div class="study-overlay-topbar">
+            <div class="study-overlay-brand">
+                <span class="study-ai-icon">🤖</span>
+                <span style="font-weight: 800; letter-spacing: 1px; color: #fff;">STUDYOS STUDY MODE</span>
+            </div>
+            <div class="study-overlay-topic-box" id="studyModeTopicHeader">
+                <span style="color: var(--text-muted); font-size: 13px;">DSA → Striver A2Z Sheet</span>
+                <div style="font-size: 18px; font-weight: 700; color: #fff;">Arrays & Binary Search</div>
+            </div>
+            <div>
+                <button class="action-btn-ghost" onclick="StudySessionEngine.closeStudyModeOverlay()" title="Minimize to background (Session keeps running)">
+                    🗕 Minimize
+                </button>
+            </div>
+        </div>
+
+        <!-- Main Workspace Area -->
+        <div class="study-overlay-main">
+            <!-- Left: High Precision Timer & Controls -->
+            <div class="study-timer-section">
+                <div class="study-status-row">
+                    <span class="session-status-pill active" id="studyModeStatusBadge">🟢 Session Active & Focused</span>
+                    <span id="studyTimerLabel" style="font-size: 13px; color: var(--text-muted);">⏱️ Active Focus Time</span>
+                </div>
+
+                <!-- Big Monospace Digital Clock -->
+                <div class="study-timer-digital" id="studyTimerBig">00:00:00</div>
+
+                <!-- Sub Metrics: Focus & Break -->
+                <div class="study-timer-metrics-grid">
+                    <div class="sub-metric-box">
+                        <span class="sub-metric-label">🎯 Focus Time</span>
+                        <span class="sub-metric-val" id="studyTimeDisplay">0m</span>
+                    </div>
+                    <div class="sub-metric-box">
+                        <span class="sub-metric-label">☕ Break Time</span>
+                        <span class="sub-metric-val" id="studyBreakTimeDisplay">0m</span>
+                    </div>
+                </div>
+
+                <!-- Action Buttons (Take Break / Resume / End) -->
+                <div class="study-timer-actions">
+                    <button class="btn-study-action break" id="studyBtnBreak" onclick="StudySessionEngine.takeBreak()">
+                        <span>☕</span>
+                        <span>TAKE BREAK</span>
+                    </button>
+                    <button class="btn-study-action resume" id="studyBtnResume" style="display: none;" onclick="StudySessionEngine.resumeStudy()">
+                        <span>▶</span>
+                        <span>RESUME STUDY</span>
+                    </button>
+                    <button class="btn-study-action end" id="studyBtnEnd" onclick="StudySessionEngine.confirmEndSession()">
+                        <span>✕</span>
+                        <span>END SESSION</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Right: Camera Live Preview & Presence Signals -->
+            <div class="study-camera-section">
+                <div class="study-camera-container" id="studyCameraPreviewContainer">
+                    <video id="studyCameraVideo" class="study-camera-video" autoplay playsinline muted></video>
+                    
+                    <!-- Fallback when camera is OFF -->
+                    <div class="camera-off-placeholder">
+                        <span style="font-size: 42px; opacity: 0.5;">📷</span>
+                        <span style="font-size: 13px; color: var(--text-muted); margin-top: 8px;">Camera monitoring is currently OFF</span>
+                    </div>
+
+                    <!-- Overlay Badges -->
+                    <div class="camera-overlay-badge-top">
+                        <span id="studyCameraStatusText" class="camera-status-text off">📷 Camera Monitoring OFF</span>
+                    </div>
+                    <div class="camera-overlay-badge-bottom">
+                        <span id="studyPresenceBadge" class="study-presence-pill off">
+                            <span class="presence-dot off"></span> Monitoring OFF
+                        </span>
+                    </div>
+                </div>
+
+                <!-- Camera Toggle Controls -->
+                <div class="study-camera-footer">
+                    <button class="btn-camera-toggle btn-camera-off" id="studyCameraToggleBtn" onclick="StudySessionEngine.toggleCameraMonitoring()">
+                        <span>📷 Turn Camera On</span>
+                    </button>
+                    <span style="font-size: 11.5px; color: var(--text-muted); text-align: center;">
+                        Presence detection runs strictly on-device. No recordings saved.
+                    </span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 3. End Session Confirmation Modal (Part 11) -->
+<div class="modal-overlay" id="studyEndConfirmModal">
+    <div class="modal-window" style="width: min(460px, 92vw); text-align: center;">
+        <div class="modal-header" style="justify-content: center;">
+            <h3 style="margin: 0; font-size: 18px;">End this study session?</h3>
+        </div>
+        <div class="modal-body">
+            <p style="color: var(--text-muted); font-size: 13.5px; margin-top: 0;">
+                Your session time and focus statistics will be logged to your analytics profile.
+            </p>
+            <div class="end-confirm-stats">
+                <div class="end-stat-col">
+                    <span class="end-stat-lbl">Study Time</span>
+                    <span class="end-stat-val" id="confirmEndStudyTime">0m</span>
+                </div>
+                <div class="end-stat-col">
+                    <span class="end-stat-lbl">Break</span>
+                    <span class="end-stat-val" id="confirmEndBreakTime">0m</span>
+                </div>
+                <div class="end-stat-col highlight">
+                    <span class="end-stat-lbl">Total</span>
+                    <span class="end-stat-val" id="confirmEndTotalTime">0m</span>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer" style="display: flex; justify-content: center; gap: 12px;">
+            <button class="action-btn-ghost" onclick="StudySessionEngine.cancelEndConfirm()">Continue Studying</button>
+            <button class="btn-primary danger" onclick="StudySessionEngine.endSession()">End Session ✓</button>
+        </div>
+    </div>
+</div>
+
+<!-- 4. Absence / Inactivity Grace Modal (Part 10) -->
+<div class="modal-overlay" id="studyAbsenceModal">
+    <div class="modal-window" style="width: min(440px, 92vw); text-align: center;">
+        <div class="modal-header" style="justify-content: center;">
+            <h3 style="margin: 0; font-size: 18px;">⚠️ Are you still studying?</h3>
+        </div>
+        <div class="modal-body">
+            <p style="color: var(--text-muted); font-size: 13.5px; margin-top: 0; line-height: 1.5;">
+                We haven't detected workspace presence for a short while. Take a quick breather or resume when you're back at your desk.
+            </p>
+        </div>
+        <div class="modal-footer" style="display: flex; justify-content: center; gap: 10px; flex-wrap: wrap;">
+            <button class="btn-primary" onclick="StudySessionEngine.resolveAbsence('here')">I'm here ✓</button>
+            <button class="action-btn-ghost" onclick="StudySessionEngine.resolveAbsence('break')">☕ Take a break</button>
+            <button class="action-btn-ghost danger" onclick="StudySessionEngine.resolveAbsence('end')">✕ End session</button>
+        </div>
+    </div>
+</div>
+
+<!-- 5. Session Summary Modal (Part 12) -->
+<div class="modal-overlay" id="studySessionSummaryModal">
+    <div class="modal-window" style="width: min(560px, 95vw);">
+        <div class="modal-header" style="text-align: center; display: block; border-bottom: none; padding-bottom: 0;">
+            <div style="font-size: 42px; margin-bottom: 6px;">🎉</div>
+            <h3 style="margin: 0; font-size: 20px; font-weight: 800; color: #fff;">Study Session Complete</h3>
+            <p style="color: var(--cyan); font-size: 13.5px; margin: 4px 0 0 0; font-weight: 600;" id="summarySessionTopic">
+                JavaScript → Arrays
+            </p>
+        </div>
+        <div class="modal-body">
+            <!-- Session Stats Grid -->
+            <div class="summary-stats-grid">
+                <div class="summary-stat-box">
+                    <span class="stat-lbl">Active Study</span>
+                    <span class="stat-val" id="summaryActiveStudy">0m</span>
+                </div>
+                <div class="summary-stat-box">
+                    <span class="stat-lbl">Break Time</span>
+                    <span class="stat-val" id="summaryBreakTime">0m</span>
+                </div>
+                <div class="summary-stat-box">
+                    <span class="stat-lbl">Total Session</span>
+                    <span class="stat-val" id="summaryTotalSession">0m</span>
+                </div>
+                <div class="summary-stat-box">
+                    <span class="stat-lbl">Camera Monitoring</span>
+                    <span class="stat-val" id="summaryCameraStatus">OFF</span>
+                </div>
+                <div class="summary-stat-box" style="grid-column: span 2;">
+                    <span class="stat-lbl">Tasks Completed</span>
+                    <span class="stat-val" id="summaryTasksCompleted">0</span>
+                </div>
+            </div>
+
+            <!-- AI Insight Card -->
+            <div class="summary-ai-card">
+                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                    <span style="font-size: 18px;">🤖</span>
+                    <b style="color: var(--gold); font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px;">StudyOS AI Insight</b>
+                </div>
+                <p id="summaryAiInsight" style="margin: 0; font-size: 13px; color: var(--text-secondary); line-height: 1.5; font-style: italic;">
+                    "You locked in 45 minutes of focused study. Consistent execution compounds directly into interview mastery."
+                </p>
+            </div>
+        </div>
+        <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 10px;">
+            <button class="action-btn-ghost" onclick="StudySessionEngine.closeSummaryModal()">Done</button>
+            <button class="btn-primary" onclick="StudySessionEngine.closeSummaryModal(); StudySessionEngine.openSetupModal();">
+                Start Another Session →
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Toast & Undo Container -->
+<div class="toast-container" id="toastContainer"></div>
+
+<!-- ==========================================================================
+     SCRIPTS
+     ========================================================================== -->
+<script src="data/config.js"></script>
+<script src="data/dsa-a2z.js"></script>
+<script src="data/placement-data.js"></script>
+<script src="data/test-questions.js"></script>
+<script src="data/schedule.js"></script>
+<script src="data/dev-data.js"></script>
+<script src="js/vendor/supabase.js"></script>
+<script src="js/supabase-service.js"></script>
+<script src="js/sync-engine.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/store.js"></script>
+<script src="js/dsa.js"></script>
+<script src="js/tasks.js"></script>
+<script src="js/code-runner.js"></script>
+<script src="js/syllabus-boundary.js"></script>
+<script src="js/monaco-loader.js"></script>
+<script src="js/test-engine.js"></script>
+<script src="js/notifications.js"></script>
+<script src="js/calendar.js"></script>
+<script src="js/placement.js"></script>
+<script src="js/development.js"></script>
+<script src="js/ai-engine.js"></script>
+<script src="js/study-session.js"></script>
+<script src="js/recommend-engine.js"></script>
+<script src="js/mistakes.js"></script>
+<script src="js/gym.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
