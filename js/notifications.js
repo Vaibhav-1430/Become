@@ -38,7 +38,7 @@ const NotificationManager = {
             Store.updateSettings({ notificationsEnabled: granted });
             this.updateStatusBadge();
             if (granted) {
-                this.sendNotification('🔔 Notifications Enabled', 'BOSS Study OS will alert you for DSA, Development & Health routines.');
+                this.sendNotification('🔔 Notifications Enabled', 'FORGE will alert you for DSA, Development & Health routines.');
                 showToast('Browser notifications enabled successfully!', 'success');
             } else if (perm === 'denied') {
                 showToast('Notification permission denied in browser settings.', 'warning');

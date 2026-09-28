@@ -161,7 +161,7 @@ const PlacementEngine = {
                             <span class="readiness-tag-pill">🎯 Authentic Evaluation Engine</span>
                             <span style="font-size: 11px; color: var(--text-muted);">Zero synthetic scores</span>
                         </div>
-                        <h3 style="margin: 4px 0 6px 0;">BOSS Placement Readiness</h3>
+                        <h3 style="margin: 4px 0 6px 0;">FORGE Placement Readiness</h3>
                         <p style="color: var(--text-secondary); margin: 0; font-size: 13px; line-height: 1.5;">
                             Every percentage is computed deterministically from your actual solved DSA sheets, code implementations, test scores, and interview performance.
                         </p>

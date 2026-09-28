@@ -29,7 +29,7 @@ const MistakeBank = {
         container.innerHTML = `
             <div class="mistake-header-banner">
                 <div class="mistake-header-content">
-                    <span class="mistake-badge-pill">🛡️ Quality & Error Defense</span>
+                    <span class="mistake-badge-pill">🛡️ FORGE ERROR DEFENSE & WEAKNESS MAP</span>
                     <h2 style="margin: 4px 0 6px 0; font-size: 22px; color: #fff;">Mistake Bank & Knowledge Weakness Map</h2>
                     <p style="color: var(--text-secondary); margin: 0; font-size: 13.5px; max-width: 720px;">
                         Convert wrong test answers, logic blunders, and edge cases into permanent mastery. Every weakness tracked here is backed by authentic performance data.
@@ -511,7 +511,7 @@ const MistakeBank = {
                         </div>
                         <div>
                             <label class="form-label">Source</label>
-                            <input type="text" id="mAddSource" class="form-input" placeholder="Sunday Test, Striver DSA, LeetCode, Contest" value="${(prefill.source || 'StudyOS Question').replace(/"/g, '&quot;')}">
+                            <input type="text" id="mAddSource" class="form-input" placeholder="Sunday Test, Striver DSA, LeetCode, Contest" value="${(prefill.source || 'FORGE Question').replace(/"/g, '&quot;')}">
                         </div>
                     </div>
 
@@ -580,7 +580,7 @@ const MistakeBank = {
             subject,
             topic: topic || 'General',
             mistakeType,
-            source: source || 'StudyOS Question',
+            source: source || 'FORGE Question',
             userAnswer,
             correctAnswer,
             explanation,

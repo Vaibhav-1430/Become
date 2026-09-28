@@ -87,7 +87,7 @@ const GymEngine = {
         container.innerHTML = `
             <div class="lifestyle-header-banner">
                 <div class="lifestyle-header-content">
-                    <span class="lifestyle-badge-pill">⚡ Body & Health Command</span>
+                    <span class="lifestyle-badge-pill">⚡ FORGE BODY & HEALTH COMMAND</span>
                     <h2 style="margin: 4px 0 6px 0; font-size: 22px; color: #fff;">Lifestyle & Physical Performance</h2>
                     <p style="color: var(--text-secondary); margin: 0; font-size: 13.5px; max-width: 720px;">
                         Disciplined training and high-protein nutrition fuel peak mental endurance for intense coding and placement preparation.

@@ -287,7 +287,7 @@ class AIStudyEngine {
 
         // High quality deterministic fallback if Gemini is offline
         const fallbackPlan = {
-            greeting: "Good morning BOSS 👋",
+            greeting: "Good morning 👋",
             dsaPlan: {
                 title: "Striver A2Z: 2-3 Problem Block",
                 duration: 60,
@@ -549,13 +549,13 @@ class AIStudyEngine {
                 }
             } else {
                 if (data.code === 'KEY_MISSING') {
-                    Store.addAiChatMessage('model', "⚠️ Connect your Gemini API key in Settings → AI / Gemini to enable StudyOS AI.");
+                    Store.addAiChatMessage('model', "⚠️ Connect your Gemini API key in Settings → AI / Gemini to enable FORGE AI.");
                 } else {
-                    Store.addAiChatMessage('model', data.error || data.fallbackMessage || "⚠️ AI temporarily unavailable. Your normal StudyOS features are still working.");
+                    Store.addAiChatMessage('model', data.error || data.fallbackMessage || "⚠️ AI temporarily unavailable. Your normal FORGE features are still working.");
                 }
             }
         } catch (e) {
-            Store.addAiChatMessage('model', "⚠️ AI temporarily unavailable. Your normal StudyOS features are still working.");
+            Store.addAiChatMessage('model', "⚠️ AI temporarily unavailable. Your normal FORGE features are still working.");
         } finally {
             this.isTyping = false;
             this.renderChatMessages();
@@ -679,8 +679,8 @@ class AIStudyEngine {
                     <div style="display: flex; align-items: center; gap: 10px;">
                         <span class="ai-robot-badge">🤖</span>
                         <div>
-                            <div class="ai-eyebrow">STUDYOS ADAPTIVE AI</div>
-                            <h4 style="margin: 0; color: #fff; font-size: 15px; font-weight: 700;">${plan.greeting || 'Good morning BOSS 👋'}</h4>
+                            <div class="ai-eyebrow">FORGE ADAPTIVE AI</div>
+                            <h4 style="margin: 0; color: #fff; font-size: 15px; font-weight: 700;">${plan.greeting || 'Good morning 👋'}</h4>
                         </div>
                     </div>
                     <div class="ai-badge-live">
@@ -724,7 +724,7 @@ class AIStudyEngine {
                         🎯 Start AI Plan
                     </button>
                     <button class="action-btn-ghost" onclick="App.switchView('ai-engine')">
-                        🤖 Ask StudyOS AI
+                        🤖 Ask FORGE AI
                     </button>
                     <button class="action-btn-ghost" style="font-size: 12px;" onclick="AIEngine.regenerateTodayPlan()">
                         🔄 Regenerate Plan
@@ -825,7 +825,7 @@ class AIStudyEngine {
                 context
             };
         }
-        showToast('Generated StudyOS priority recommendation', 'info');
+        showToast('Generated FORGE priority recommendation', 'info');
         this.render();
     }
 
@@ -882,14 +882,14 @@ class AIStudyEngine {
             <!-- Top Hero Banner -->
             <div class="hero-banner dev-hero" style="margin-bottom: 20px;">
                 <div class="hero-content">
-                    <div class="dev-hero-eyebrow">🤖 BOSS ADAPTIVE AI ENGINE</div>
+                    <div class="dev-hero-eyebrow">🤖 FORGE ADAPTIVE AI</div>
                     <h3>Adaptive AI Study Engine & Tutor</h3>
-                    <p>Your personalized study decision engine. Powered by Google Gemini and authentic StudyOS learning analytics to optimize study blocks, eliminate decision fatigue, and enforce mastery.</p>
+                    <p>Your personalized study decision engine. Powered by Google Gemini and authentic FORGE learning analytics to optimize study blocks, eliminate decision fatigue, and enforce mastery.</p>
                 </div>
                 <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 8px;">
                     <div class="ai-context-chip">
                         <span>Active Context:</span>
-                        <b>${context.currentTopic || 'General StudyOS'}</b>
+                        <b>${context.currentTopic || 'General FORGE'}</b>
                     </div>
                     <button type="button" class="btn-ghost-sm" onclick="App.openSettingsModal('ai')" style="position: static; font-size: 11.5px; padding: 4px 10px; border-radius: var(--radius-full); background: rgba(0,240,255,0.08); border: 1px solid rgba(0,240,255,0.25); color: var(--cyan); cursor: pointer; display: inline-flex; align-items: center; gap: 4px;">
                         <span>⚙️</span>
@@ -1003,7 +1003,7 @@ class AIStudyEngine {
                         ${!rec.isGemini ? `
                             <div class="ai-status-banner-offline">
                                 <span>ℹ️</span>
-                                <span><b>AI temporarily unavailable</b> — here's your highest-priority pending task based on authentic StudyOS data.</span>
+                                <span><b>AI temporarily unavailable</b> — here's your highest-priority pending task based on authentic FORGE data.</span>
                             </div>
                         ` : ''}
 
@@ -1117,7 +1117,7 @@ class AIStudyEngine {
                     ${history.length === 0 ? `
                         <div class="ai-welcome-box">
                             <span style="font-size: 36px;">🤖</span>
-                            <h4>Welcome to BOSS AI Adaptive Tutor</h4>
+                            <h4>Welcome to FORGE Adaptive AI Tutor</h4>
                             <p>Ask anything about Striver DSA, Full-Stack Development (React, Node, DBs, Docker), System Design, or Core CS.</p>
                             <span class="ai-welcome-tag">Context Aware: Currently tuned into <b>${this.getCurrentContext().currentTopic}</b></span>
                         </div>
@@ -1125,7 +1125,7 @@ class AIStudyEngine {
                         <div class="ai-msg-row ${msg.role === 'user' ? 'user' : 'model'}">
                             <div class="ai-msg-bubble ${msg.role}">
                                 <div class="ai-msg-header">
-                                    <span>${msg.role === 'user' ? '👤 BOSS' : '🤖 StudyOS AI'}</span>
+                                    <span>${msg.role === 'user' ? '👤 YOU' : '🤖 FORGE AI'}</span>
                                     <small>${new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</small>
                                 </div>
                                 <div class="ai-msg-text">${this.formatMarkdown(msg.text)}</div>
@@ -1143,7 +1143,7 @@ class AIStudyEngine {
 
                 <!-- Input Box -->
                 <div class="ai-chat-input-bar">
-                    <input type="text" class="form-input ai-chat-input" id="aiChatInput" placeholder="Ask StudyOS AI (e.g. 'Explain binary search bounds' or 'Analyze my recent mistakes')..." onkeydown="if(event.key==='Enter') AIEngine.submitChat()">
+                    <input type="text" class="form-input ai-chat-input" id="aiChatInput" placeholder="Ask FORGE AI (e.g. 'Explain binary search bounds' or 'Analyze my recent mistakes')..." onkeydown="if(event.key==='Enter') AIEngine.submitChat()">
                     <button class="btn-primary" id="btnSendAiChat" onclick="AIEngine.submitChat()">
                         Ask Tutor →
                     </button>
@@ -1290,7 +1290,7 @@ class AIStudyEngine {
                 <div class="section-title-bar">
                     <div>
                         <h3>📊 Structured Learner Profile</h3>
-                        <p>Evolving continuously from your authentic StudyOS study sessions and test results.</p>
+                        <p>Evolving continuously from your authentic FORGE study sessions and test results.</p>
                     </div>
                 </div>
 
@@ -1362,7 +1362,7 @@ class AIStudyEngine {
                 <div class="section-title-bar">
                     <div>
                         <h3>💡 AI Study Insights</h3>
-                        <p>Objective behavioral insights grounded strictly in your StudyOS learning analytics.</p>
+                        <p>Objective behavioral insights grounded strictly in your FORGE learning analytics.</p>
                     </div>
                 </div>
 
@@ -1375,7 +1375,7 @@ class AIStudyEngine {
                             <div class="insight-feed-content">
                                 <p style="margin: 0; font-size: 13.5px; color: #fff;">${item.text}</p>
                                 <span style="font-size: 11px; color: var(--text-muted); margin-top: 4px; display: inline-block;">
-                                    Ground Truth: ${item.source || 'StudyOS Activity Engine'}
+                                    Ground Truth: ${item.source || 'FORGE Activity Engine'}
                                 </span>
                             </div>
                         </div>

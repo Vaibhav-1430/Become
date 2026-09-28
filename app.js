@@ -1843,7 +1843,7 @@ const App = {
         document.getElementById('placementConfirmModal').classList.remove('active');
         this.renderPlacementView();
         CalendarEngine.render();
-        showToast('🎉 CONGRATULATIONS BOSS! Placement Achieved!', 'success');
+        showToast('🎉 CONGRATULATIONS! FORGE Placement Achieved!', 'success');
     },
 
     // ----------------------------------------------------
