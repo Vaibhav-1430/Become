@@ -428,6 +428,9 @@ const SyncEngine = {
             case 'WORKOUT_SESSION':
                 return await SupabaseService.saveWorkoutSession(payload.sessionData);
 
+            case 'WORKOUT_SESSION_DELETE':
+                return await SupabaseService.deleteWorkoutSession(payload.sessionId);
+
             case 'WORKOUT_PLAN':
                 return await SupabaseService.saveWorkoutPlan(payload.schedule, payload.settings);
 
@@ -629,6 +632,23 @@ const SyncEngine = {
             });
         } else {
             this.queueMutation('WORKOUT_SESSION', { sessionData });
+        }
+    },
+
+    pushDeleteWorkoutSession(sessionId) {
+        if (!sessionId) return;
+        const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
+        const isAuth = typeof SupabaseService !== 'undefined' && SupabaseService.isAuthenticated();
+
+        if (isOnline && isAuth && this.pendingQueue.length === 0) {
+            this.updateStatus('SYNCING');
+            SupabaseService.deleteWorkoutSession(sessionId).then(() => {
+                this.updateStatus('SYNCED');
+            }).catch(() => {
+                this.queueMutation('WORKOUT_SESSION_DELETE', { sessionId });
+            });
+        } else {
+            this.queueMutation('WORKOUT_SESSION_DELETE', { sessionId });
         }
     },
 
@@ -910,53 +930,88 @@ const SyncEngine = {
             result.gym = result.gym || {};
             result.gym.sessions = result.gym.sessions || [];
             cloud.workoutSessions.forEach(ws => {
-                const localIdx = result.gym.sessions.findIndex(ls => ls.id === ws.id || (ls.date === ws.date && ls.workoutType === ws.workout_type));
+                const localIdx = result.gym.sessions.findIndex(ls => 
+                    ls.id === ws.id || (
+                        ls.date === ws.date && 
+                        (ls.workoutType || ls.routineName) === (ws.workout_type || ws.workoutType) &&
+                        Math.abs((ls.totalVolumeKg || 0) - (Number(ws.total_volume_kg || ws.totalVolumeKg) || 0)) < 0.1
+                    )
+                );
+                const existing = localIdx >= 0 ? result.gym.sessions[localIdx] : null;
+                const exercises = (Array.isArray(ws.exercises) && ws.exercises.length > 0)
+                    ? ws.exercises
+                    : (existing && Array.isArray(existing.exercises) ? existing.exercises : []);
+
+                let calcSets = 0;
+                let calcVolume = 0;
+                let calcReps = 0;
+                exercises.forEach(ex => {
+                    if (!ex.skipped) {
+                        (ex.sets || []).forEach(st => {
+                            const wt = Number(st.weightKg ?? st.weight_kg ?? 0) || 0;
+                            const rp = Number(st.reps ?? 0) || 0;
+                            if (st.completed !== false && (rp > 0 || wt > 0 || st.completed === true)) {
+                                calcSets++;
+                                calcReps += rp;
+                                calcVolume += (wt * rp);
+                            }
+                        });
+                    }
+                });
+
+                const routineName = (ws.workout_type || ws.workoutType || ws.routineName || 'Custom Workout').trim();
+                const rawSets = Number(ws.total_sets ?? ws.totalSets ?? 0) || 0;
+                const totalSets = rawSets > 0 ? rawSets : calcSets;
+                const rawVol = Number(ws.total_volume_kg ?? ws.totalVolumeKg ?? 0) || 0;
+                const totalVolumeKg = rawVol > 0 ? Math.round(rawVol) : Math.round(calcVolume);
+                const rawReps = Number(ws.total_reps ?? ws.totalReps ?? 0) || 0;
+                const totalReps = rawReps > 0 ? rawReps : calcReps;
+                const durMin = Number(ws.duration_minutes ?? ws.durationMinutes ?? ws.duration ?? 0) || 0;
+
                 const sessObj = {
                     id: ws.id,
-                    userId: ws.user_id,
+                    userId: ws.user_id || ws.userId,
                     date: ws.date,
-                    dayOfWeek: ws.day_of_week,
-                    dayKey: ws.day_key,
-                    routineName: ws.workout_type,
-                    workoutType: ws.workout_type,
-                    durationMinutes: ws.duration_minutes,
-                    duration: ws.duration_minutes,
+                    dayOfWeek: ws.day_of_week || ws.dayOfWeek,
+                    dayKey: (ws.day_key || ws.dayKey || '').toLowerCase(),
+                    routineName,
+                    workoutType: routineName,
+                    durationMinutes: durMin,
+                    duration: durMin,
                     status: ws.status || 'completed',
-                    gym_photo_path: ws.gym_photo_path || null,
-                    gymPhoto: ws.gym_photo_path ? {
+                    gym_photo_path: ws.gym_photo_path || (existing ? existing.gym_photo_path : null),
+                    gymPhoto: (ws.gym_photo_path || (existing && existing.gym_photo_path)) ? {
                         id: ws.id + '_photo',
-                        storagePath: ws.gym_photo_path,
-                        url: null,
-                        createdAt: ws.created_at
+                        storagePath: ws.gym_photo_path || existing.gym_photo_path,
+                        url: existing ? (existing.gymPhoto?.url || existing.gym_photo_url) : null,
+                        createdAt: ws.created_at || ws.completedAt
                     } : null,
                     gym_photo_id: ws.gym_photo_path ? (ws.id + '_photo') : null,
-                    gym_photo_url: null,
+                    gym_photo_url: existing ? (existing.gymPhoto?.url || existing.gym_photo_url) : null,
                     gym_photo_created_at: ws.created_at || null,
-                    totalVolumeKg: Number(ws.total_volume_kg) || 0,
-                    totalSets: ws.total_sets || 0,
-                    totalReps: ws.total_reps || 0,
+                    totalVolumeKg,
+                    totalSets,
+                    totalReps,
                     notes: ws.notes || '',
-                    startedAt: ws.started_at,
-                    endedAt: ws.ended_at,
-                    completedAt: ws.created_at,
-                    updatedAt: ws.updated_at,
-                    exercises: ws.exercises || []
+                    startedAt: ws.started_at || ws.startedAt,
+                    endedAt: ws.ended_at || ws.endedAt,
+                    completedAt: ws.created_at || ws.completedAt,
+                    updatedAt: ws.updated_at || ws.updatedAt,
+                    exercises
                 };
                 if (localIdx >= 0) {
                     const localTime = result.gym.sessions[localIdx].updatedAt ? new Date(result.gym.sessions[localIdx].updatedAt).getTime() : 0;
                     const cloudTime = ws.updated_at ? new Date(ws.updated_at).getTime() : 0;
                     if (cloudTime >= localTime) {
-                        const existingLocal = result.gym.sessions[localIdx];
-                        if (existingLocal && existingLocal.gym_photo_url && (!sessObj.gym_photo_path || sessObj.gym_photo_path === existingLocal.gym_photo_path)) {
-                            sessObj.gym_photo_url = existingLocal.gym_photo_url;
-                            if (sessObj.gymPhoto) sessObj.gymPhoto.url = existingLocal.gym_photo_url;
-                        }
                         result.gym.sessions[localIdx] = sessObj;
                     }
                 } else {
                     result.gym.sessions.push(sessObj);
                 }
             });
+            if (typeof Store !== 'undefined' && typeof Store.deduplicateWorkoutSessions === 'function') {
+                result.gym.sessions = Store.deduplicateWorkoutSessions(result.gym.sessions);
+            }
         }
 
         // 7. Placement Hub Data
@@ -1002,6 +1057,337 @@ const SyncEngine = {
         }
 
         return result;
+    },
+
+    // -------------------------------------------------------------------------
+    // Realtime Cross-Platform Synchronization (Phase 6)
+    // -------------------------------------------------------------------------
+    _realtimeChannel: null,
+    _recentWebWrites: new Map(),
+
+    markLocalWrite(entityType, entityId) {
+        if (!entityType || !entityId) return;
+        this._recentWebWrites.set(`${entityType}:${entityId}`, Date.now());
+        const now = Date.now();
+        for (const [k, v] of this._recentWebWrites.entries()) {
+            if (now - v > 20000) this._recentWebWrites.delete(k);
+        }
+    },
+
+    isEcho(entityType, entityId) {
+        if (!entityType || !entityId) return false;
+        const writeTime = this._recentWebWrites.get(`${entityType}:${entityId}`);
+        if (!writeTime) return false;
+        return (Date.now() - writeTime) <= 20000;
+    },
+
+    initRealtime(supabaseClient, userId) {
+        if (!supabaseClient || !userId) return;
+        this.unsubscribeRealtime();
+
+        const channelName = 'studyos_realtime_' + userId;
+        console.log('[SyncEngine] Initializing Realtime channel:', channelName);
+
+        const channel = supabaseClient.channel(channelName);
+        const tables = [
+            'study_tasks',
+            'study_sessions',
+            'dsa_progress',
+            'development_progress',
+            'mistakes',
+            'workout_sessions',
+            'personal_records',
+            'internships',
+            'placement_hub_data'
+        ];
+
+        tables.forEach(table => {
+            channel.on('postgres_changes', {
+                event: '*',
+                schema: 'public',
+                table: table,
+                filter: `user_id=eq.${userId}`
+            }, (payload) => {
+                this.handleRemoteRealtimeChange(table, payload);
+            });
+        });
+
+        channel.subscribe((status) => {
+            console.log(`[SyncEngine] Realtime channel status: ${status}`);
+            if (status === 'SUBSCRIBED') {
+                this.renderBadgeUI(this.status);
+            }
+        });
+
+        this._realtimeChannel = channel;
+    },
+
+    unsubscribeRealtime() {
+        if (this._realtimeChannel) {
+            try {
+                this._realtimeChannel.unsubscribe();
+            } catch (e) {}
+            this._realtimeChannel = null;
+        }
+    },
+
+    handleRemoteRealtimeChange(table, payload) {
+        if (!payload) return;
+        const { eventType, new: newRecord, old: oldRecord } = payload;
+        const rec = newRecord || oldRecord || {};
+
+        let entityId = rec.id || '';
+        let entityType = table;
+
+        if (table === 'study_tasks') {
+            entityId = rec.task_id || rec.id;
+            entityType = 'study_task';
+        } else if (table === 'dsa_progress') {
+            entityId = rec.problem_id || rec.id;
+            entityType = 'dsa_progress';
+        } else if (table === 'development_progress') {
+            entityId = `${rec.category || ''}__${rec.item_id || ''}`;
+            entityType = 'development_progress';
+        } else if (table === 'personal_records') {
+            entityId = rec.exercise_id || rec.id;
+            entityType = 'personal_record';
+        }
+
+        // Echo suppression: If this write originated from this Web browser within 20s, skip
+        if (this.isEcho(entityType, entityId)) {
+            console.log(`[SyncEngine] Echo suppressed for ${entityType}:${entityId}`);
+            return;
+        }
+
+        console.log(`[SyncEngine] Inbound remote Realtime event: ${eventType} ${table}:${entityId}`);
+
+        if (typeof Store === 'undefined') return;
+        const state = Store.getState();
+
+        if (table === 'study_tasks') {
+            const dateStr = rec.date;
+            if (dateStr && state.days && state.days[dateStr]) {
+                const tasks = state.days[dateStr].tasks || [];
+                const idx = tasks.findIndex(t => t.id === (rec.task_id || rec.id));
+                if (eventType === 'DELETE') {
+                    if (idx >= 0) tasks.splice(idx, 1);
+                } else {
+                    const taskObj = {
+                        id: rec.task_id || rec.id,
+                        dateKey: rec.date,
+                        title: rec.title,
+                        category: rec.category,
+                        startTime: rec.start_time,
+                        endTime: rec.end_time,
+                        status: rec.status,
+                        isStudy: !!rec.is_study,
+                        isBlock: !!rec.is_block,
+                        notes: rec.notes || '',
+                        updatedAt: rec.updated_at
+                    };
+                    if (idx >= 0) tasks[idx] = taskObj;
+                    else tasks.push(taskObj);
+                }
+                Store.memoryState.days[dateStr].tasks = tasks;
+                Store.save();
+                if (typeof App !== 'undefined' && App.renderAll) App.renderAll();
+            }
+        } else if (table === 'dsa_progress') {
+            const pid = rec.problem_id;
+            if (pid) {
+                state.dsa = state.dsa || {};
+                if (eventType === 'DELETE') {
+                    delete state.dsa[pid];
+                } else {
+                    state.dsa[pid] = {
+                        status: rec.status,
+                        notes: rec.notes || '',
+                        solvedDate: rec.solved_at || null,
+                        updatedAt: rec.updated_at
+                    };
+                }
+                Store.memoryState.dsa = state.dsa;
+                Store.save();
+                if (typeof App !== 'undefined' && App.renderAll) App.renderAll();
+            }
+        } else if (table === 'development_progress') {
+            const cat = rec.category || 'tasks';
+            const itemId = rec.item_id;
+            if (itemId) {
+                state.development = state.development || {};
+                state.development[cat] = state.development[cat] || {};
+                if (eventType === 'DELETE') {
+                    delete state.development[cat][itemId];
+                } else {
+                    state.development[cat][itemId] = {
+                        status: rec.status,
+                        notes: rec.notes || '',
+                        repoLink: rec.repo_link || '',
+                        liveLink: rec.live_link || '',
+                        solvedAt: rec.solved_at || null,
+                        updatedAt: rec.updated_at
+                    };
+                }
+                Store.memoryState.development = state.development;
+                Store.save();
+                if (typeof App !== 'undefined' && App.renderAll) App.renderAll();
+            }
+        } else if (table === 'mistakes') {
+            state.mistakes = state.mistakes || [];
+            const idx = state.mistakes.findIndex(m => m.id === rec.id);
+            if (eventType === 'DELETE') {
+                if (idx >= 0) state.mistakes.splice(idx, 1);
+            } else {
+                const mistakeObj = {
+                    id: rec.id,
+                    question: rec.question,
+                    subject: rec.subject,
+                    topic: rec.topic || '',
+                    source: rec.source || '',
+                    date: rec.date,
+                    userAnswer: rec.user_answer || '',
+                    correctAnswer: rec.correct_answer || '',
+                    explanation: rec.explanation || '',
+                    mistakeType: rec.mistake_type || '',
+                    personalNote: rec.personal_note || '',
+                    revisitDate: rec.revisit_date || null,
+                    repeatCount: rec.repeat_count || 1,
+                    resolved: !!rec.resolved,
+                    createdAt: rec.created_at,
+                    updatedAt: rec.updated_at
+                };
+                if (idx >= 0) state.mistakes[idx] = mistakeObj;
+                else state.mistakes.unshift(mistakeObj);
+            }
+            Store.memoryState.mistakes = state.mistakes;
+            Store.save();
+            if (typeof App !== 'undefined' && App.renderAll) App.renderAll();
+        } else if (table === 'workout_plans') {
+            state.gym = state.gym || {};
+            if (eventType !== 'DELETE' && rec && rec.schedule) {
+                state.gym.isConfigured = rec.is_configured ?? true;
+                state.gym.schedule = rec.schedule;
+                state.gym.settings = { ...(state.gym.settings || {}), ...(rec.settings || {}) };
+                Store.memoryState.gym = state.gym;
+                Store.save(true);
+                if (typeof GymEngine !== 'undefined' && typeof GymEngine.render === 'function') {
+                    GymEngine.render();
+                }
+            }
+        } else if (table === 'workout_sessions') {
+            state.gym = state.gym || {};
+            state.gym.sessions = state.gym.sessions || [];
+            const idx = state.gym.sessions.findIndex(s => s.id === rec.id);
+            if (eventType === 'DELETE') {
+                if (idx >= 0) state.gym.sessions.splice(idx, 1);
+            } else {
+                const existing = idx >= 0 ? state.gym.sessions[idx] : null;
+                const routineName = (rec.workout_type || (existing ? existing.workoutType : 'Custom Workout')).trim();
+                const exercises = (existing && Array.isArray(existing.exercises) && existing.exercises.length > 0) ? existing.exercises : [];
+
+                let calcSets = 0;
+                let calcVolume = 0;
+                let calcReps = 0;
+                exercises.forEach(ex => {
+                    if (!ex.skipped) {
+                        (ex.sets || []).forEach(st => {
+                            const wt = Number(st.weightKg ?? st.weight_kg ?? 0) || 0;
+                            const rp = Number(st.reps ?? 0) || 0;
+                            if (st.completed !== false && (rp > 0 || wt > 0 || st.completed === true)) {
+                                calcSets++;
+                                calcReps += rp;
+                                calcVolume += (wt * rp);
+                            }
+                        });
+                    }
+                });
+
+                const rawSets = Number(rec.total_sets ?? 0);
+                const totalSets = rawSets > 0 ? rawSets : (existing ? (existing.totalSets || calcSets) : calcSets);
+                const rawVol = Number(rec.total_volume_kg ?? 0);
+                const totalVolumeKg = rawVol > 0 ? Math.round(rawVol) : (existing ? (existing.totalVolumeKg || Math.round(calcVolume)) : Math.round(calcVolume));
+                const rawReps = Number(rec.total_reps ?? 0);
+                const totalReps = rawReps > 0 ? rawReps : (existing ? (existing.totalReps || calcReps) : calcReps);
+                const durMin = Number(rec.duration_minutes ?? 0) || (existing ? existing.durationMinutes : 0);
+
+                const photoPath = rec.gym_photo_path || (existing ? existing.gym_photo_path : null);
+
+                const sessObj = {
+                    id: rec.id,
+                    userId: rec.user_id || (existing ? existing.userId : ''),
+                    date: rec.date,
+                    dayOfWeek: rec.day_of_week || (existing ? existing.dayOfWeek : ''),
+                    dayKey: (rec.day_key || (existing ? existing.dayKey : '')).toLowerCase(),
+                    routineName,
+                    workoutType: routineName,
+                    durationMinutes: durMin,
+                    duration: durMin,
+                    status: rec.status || 'completed',
+                    gym_photo_path: photoPath,
+                    gymPhoto: photoPath ? {
+                        id: rec.id + '_photo',
+                        storagePath: photoPath,
+                        url: existing ? (existing.gymPhoto?.url || existing.gym_photo_url) : null,
+                        createdAt: rec.created_at
+                    } : null,
+                    gym_photo_id: photoPath ? (rec.id + '_photo') : null,
+                    gym_photo_url: existing ? (existing.gymPhoto?.url || existing.gym_photo_url) : null,
+                    totalVolumeKg,
+                    totalSets,
+                    totalReps,
+                    notes: rec.notes || (existing ? existing.notes : ''),
+                    startedAt: rec.started_at || (existing ? existing.startedAt : null),
+                    endedAt: rec.ended_at || (existing ? existing.endedAt : null),
+                    completedAt: rec.created_at || (existing ? existing.completedAt : null),
+                    updatedAt: rec.updated_at || DateUtils.nowISO(),
+                    exercises
+                };
+
+                // Check signature match to prevent creating duplicates for local unsynced record
+                const sigIdx = state.gym.sessions.findIndex(s => 
+                    s.id === rec.id || (
+                        s.date === rec.date && 
+                        (s.workoutType || s.routineName) === routineName &&
+                        Math.abs((s.totalVolumeKg || 0) - totalVolumeKg) < 0.1 &&
+                        (s.totalSets || 0) === totalSets
+                    )
+                );
+
+                if (sigIdx >= 0) {
+                    state.gym.sessions[sigIdx] = { ...state.gym.sessions[sigIdx], ...sessObj };
+                } else {
+                    state.gym.sessions.push(sessObj);
+                }
+            }
+            if (typeof Store !== 'undefined' && typeof Store.deduplicateWorkoutSessions === 'function') {
+                state.gym.sessions = Store.deduplicateWorkoutSessions(state.gym.sessions);
+            }
+            Store.memoryState.gym = state.gym;
+            Store.save();
+            if (typeof App !== 'undefined' && App.renderAll) App.renderAll();
+        } else if (table === 'internships') {
+            state.internships = state.internships || [];
+            const idx = state.internships.findIndex(i => i.id === rec.id);
+            if (eventType === 'DELETE') {
+                if (idx >= 0) state.internships.splice(idx, 1);
+            } else {
+                const internObj = {
+                    id: rec.id,
+                    company: rec.company,
+                    role: rec.role,
+                    dateApplied: rec.date_applied,
+                    status: rec.status,
+                    link: rec.link,
+                    notes: rec.notes,
+                    updatedAt: rec.updated_at
+                };
+                if (idx >= 0) state.internships[idx] = internObj;
+                else state.internships.push(internObj);
+            }
+            Store.memoryState.internships = state.internships;
+            Store.save();
+            if (typeof App !== 'undefined' && App.renderAll) App.renderAll();
+        }
     }
 };
 

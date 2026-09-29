@@ -184,6 +184,9 @@ const GymEngine = {
                     </button>
                 </div>
                 <div class="gym-subnav-actions">
+                    <button id="btnGymRefresh" class="action-btn-ghost btn-gym-refresh" style="padding: 6px 12px; font-size: 12px;" onclick="GymEngine.refreshGymData()" title="Fetch latest workouts and plans from cloud">
+                        ↻ REFRESH
+                    </button>
                     <button class="btn-gym-quick-record" onclick="GymEngine.triggerQuickLogWorkout()">
                         ⚡ + LOG WORKOUT
                     </button>
@@ -269,8 +272,8 @@ const GymEngine = {
                     <div class="twh-top">
                         <div>
                             <span class="twh-badge completed">✓ WORKOUT COMPLETED TODAY</span>
-                            <h3 style="margin: 4px 0 2px 0; color: #fff; font-size: 22px;">${completedSession.routineName}</h3>
-                            <span style="color: var(--text-secondary); font-size: 13px;">Finished in ${completedSession.durationMinutes || completedSession.duration || 0} mins • Total Volume: ${(completedSession.totalVolumeKg || 0).toLocaleString()} kg (${completedSession.totalSets || 0} sets)</span>
+                            <h3 style="margin: 4px 0 2px 0; color: #fff; font-size: 22px;">${completedSession.workoutType || completedSession.routineName}</h3>
+                            <span style="color: var(--text-secondary); font-size: 13px;">Finished in ${completedSession.durationMinutes || completedSession.duration || 0} mins • Total Volume: ${(completedSession.totalVolumeKg || 0).toLocaleString()} kg (${completedSession.setCount || completedSession.totalSets || 0} sets)</span>
                             <div class="twh-muscle-pills" style="margin-top: 10px;">
                                 ${muscleGroups.map(m => `<span class="twh-muscle-pill">${m}</span>`).join('')}
                             </div>
@@ -322,7 +325,7 @@ const GymEngine = {
                     <div>
                         <span class="twh-badge">TODAY'S WORKOUT</span>
                         <h2 style="margin: 4px 0 2px 0; color: #fff; font-size: 26px; font-weight: 800;">${todayInfo.dayName.toUpperCase()}</h2>
-                        <div style="font-size: 20px; font-weight: 800; color: var(--gold); margin-top: 2px;">${templ.routineName}</div>
+                        <div style="font-size: 20px; font-weight: 800; color: var(--gold); margin-top: 2px;">${templ.workoutType || templ.routineName || 'REST / NO WORKOUT PLANNED'}</div>
                         <div class="twh-muscle-pills">
                             ${muscleGroups.map(m => `<span class="twh-muscle-pill">${m}</span>`).join('')}
                             <span style="color: var(--text-muted); font-size: 12px; margin-left: 6px; align-self: center;">${muscleGroups.length} muscle groups</span>
@@ -1303,16 +1306,6 @@ const GymEngine = {
             endedAt: DateUtils.nowISO()
         });
 
-        // Synchronize with Supabase cloud database if user is authenticated
-        if (typeof SupabaseService !== 'undefined' && SupabaseService.isAuthenticated()) {
-            SupabaseService.saveWorkoutSession(savedSession).then(() => {
-                console.log('[Gym] Workout session synchronized with Supabase cloud database.');
-            }).catch(syncErr => {
-                console.warn('[Gym] Cloud sync warning:', syncErr.message);
-                showToast("Saved locally. Cloud sync pending: " + syncErr.message, "warning");
-            });
-        }
-
         this.stopRestTimer();
         this.liveWorkout = null;
         Store.clearActiveWorkoutSession();
@@ -1491,29 +1484,41 @@ const GymEngine = {
                     <div class="history-list">
                         ${sessions.map(s => {
                             const hasPhoto = !!(s.gym_photo_path || s.gymPhoto?.storagePath || s.gymPhoto?.url || s.gym_photo_url || s.gymPhoto?.base64);
+                            const wType = s.workoutType || s.routineName || 'Custom Workout';
+                            const dur = s.durationMinutes || s.duration || 0;
+                            const exCount = s.exerciseCount || s.exercises?.length || 0;
+                            const setCount = s.setCount || s.totalSets || 0;
+                            const vol = (s.totalVolumeKg || 0).toLocaleString();
+                            const status = (s.status || 'COMPLETED').toUpperCase();
+
                             return `
-                                <div class="history-session-card">
+                                <div class="history-session-card" id="history-card-${s.id}">
                                     <div class="h-sess-left">
                                         <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 2px;">
                                             <span style="color: var(--emerald);">🟢</span>
                                             <span class="h-sess-date">${s.date}</span>
+                                            <span class="h-sess-badge-status" style="font-size: 10.5px; background: rgba(16, 185, 129, 0.15); color: var(--emerald); padding: 2px 7px; border-radius: 4px; font-weight: 700; letter-spacing: 0.5px;">${status}</span>
                                             <span style="font-size: 11px; color: var(--text-muted);">(${s.dayOfWeek || s.dayKey || ''})</span>
                                         </div>
-                                        <h4 class="h-sess-title" style="margin: 2px 0 6px 0;">${s.routineName}</h4>
+                                        <h4 class="h-sess-title" style="margin: 2px 0 6px 0; font-size: 17px; font-weight: 700; color: #fff;">${wType}</h4>
                                         <div class="h-sess-meta">
-                                            <span>⏱ ${s.durationMinutes || s.duration || 0} min</span>
-                                            <span>🏋️ ${s.exercises?.length || 0} exercises / ${s.totalSets || 0} sets</span>
-                                            <span>📈 Volume: ${(s.totalVolumeKg || 0).toLocaleString()} kg</span>
+                                            <span>⏱ ${dur} min</span>
+                                            <span>🏋️ ${exCount} exercises</span>
+                                            <span>📊 ${setCount} sets</span>
+                                            <span>📈 Volume: ${vol} kg</span>
                                         </div>
                                     </div>
-                                    <div style="display: flex; align-items: center; gap: 8px;">
+                                    <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
                                         ${hasPhoto ? `
                                             <button class="btn-view-photo" onclick="GymEngine.viewSessionPhoto('${s.id}')">
-                                                📸 View Gym Photo
+                                                📸 VIEW PHOTO
                                             </button>
                                         ` : ''}
                                         <button class="action-btn-ghost" onclick="GymEngine.viewSessionDetails('${s.id}')">
-                                            View Workout Log ↗
+                                            VIEW WORKOUT ↗
+                                        </button>
+                                        <button class="action-btn-ghost danger btn-delete-workout" onclick="GymEngine.confirmDeleteWorkout('${s.id}')" title="Delete this workout session">
+                                            🗑️ DELETE
                                         </button>
                                     </div>
                                 </div>
@@ -1716,8 +1721,8 @@ const GymEngine = {
                 </div>
 
                 <div class="modal-footer" style="display: flex; justify-content: space-between; padding: 16px;">
-                    <button class="action-btn-ghost danger" onclick="if(confirm('Delete this workout session permanently?')) { Store.deleteWorkoutSession('${s.id}'); document.getElementById('workoutSessionDetailModal').classList.remove('active'); GymEngine.render(); }">
-                        Delete Session
+                    <button class="action-btn-ghost danger btn-delete-workout" onclick="GymEngine.confirmDeleteWorkout('${s.id}')">
+                        🗑️ Delete Workout
                     </button>
                     <button class="btn-primary" onclick="document.getElementById('workoutSessionDetailModal').classList.remove('active')">Close</button>
                 </div>
@@ -1725,6 +1730,133 @@ const GymEngine = {
         `;
 
         modal.classList.add('active');
+    },
+
+    // -------------------------------------------------------------------------
+    // Delete Workout Confirmation Modal & Execution
+    // -------------------------------------------------------------------------
+    confirmDeleteWorkout(sessionId) {
+        const s = Store.getWorkoutSessionById(sessionId);
+        if (!s) return;
+
+        let modal = document.getElementById('deleteWorkoutModal');
+        if (!modal) {
+            modal = document.createElement('div');
+            modal.className = 'modal-overlay';
+            modal.id = 'deleteWorkoutModal';
+            document.body.appendChild(modal);
+        }
+
+        modal.onclick = (e) => {
+            if (e.target === modal) modal.classList.remove('active');
+        };
+
+        const wType = s.workoutType || s.routineName || 'Custom Workout';
+        const dur = s.durationMinutes || s.duration || 0;
+        const sets = s.setCount || s.totalSets || 0;
+        const vol = (s.totalVolumeKg || 0).toLocaleString();
+
+        modal.innerHTML = `
+            <div class="modal-window" style="width: min(480px, 92vw);">
+                <div class="modal-header">
+                    <div>
+                        <span style="font-size: 11px; color: var(--rose, #f43f5e); text-transform: uppercase; font-weight: 800; letter-spacing: 0.5px;">Permanent Removal</span>
+                        <h3 style="margin: 2px 0 0 0; color: #fff;">DELETE WORKOUT?</h3>
+                    </div>
+                    <button class="btn-close-modal" onclick="document.getElementById('deleteWorkoutModal').classList.remove('active')">×</button>
+                </div>
+                <div class="modal-body" style="padding: 18px 20px;">
+                    <p style="color: var(--text-primary); margin: 0 0 14px 0; font-size: 14px;">
+                        Are you sure you want to permanently delete this workout session?
+                    </p>
+                    <div style="background: rgba(244, 63, 94, 0.08); border: 1px solid rgba(244, 63, 94, 0.25); border-radius: 8px; padding: 12px 16px; margin-bottom: 16px;">
+                        <div style="font-weight: 700; color: #fff; font-size: 15px; margin-bottom: 4px;">${s.date} — ${wType}</div>
+                        <div style="font-size: 12.5px; color: var(--text-secondary);">
+                            ⏱ ${dur} min • 📊 ${sets} sets • 📈 ${vol} kg
+                        </div>
+                    </div>
+                    <p style="color: var(--text-muted); font-size: 12px; margin: 0; line-height: 1.5;">
+                        This will permanently remove the workout session, its child exercises, sets, and associated check-in photo from local storage and Supabase cloud.
+                    </p>
+                </div>
+                <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 10px; padding: 14px 20px; border-top: 1px solid rgba(255,255,255,0.08);">
+                    <button class="action-btn-ghost" onclick="document.getElementById('deleteWorkoutModal').classList.remove('active')">
+                        Cancel
+                    </button>
+                    <button class="btn-primary danger" style="background: var(--rose, #f43f5e); border-color: var(--rose, #f43f5e);" onclick="GymEngine.deleteWorkout('${s.id}')">
+                        🗑️ Delete Permanently
+                    </button>
+                </div>
+            </div>
+        `;
+        modal.classList.add('active');
+    },
+
+    deleteWorkout(sessionId) {
+        const modal = document.getElementById('deleteWorkoutModal');
+        if (modal) modal.classList.remove('active');
+        const detailModal = document.getElementById('workoutSessionDetailModal');
+        if (detailModal) detailModal.classList.remove('active');
+
+        // Optimistic delete with rollback safety
+        const backupSession = Store.getWorkoutSessionById(sessionId);
+        try {
+            Store.deleteWorkoutSession(sessionId);
+            this.render();
+            showToast('Workout deleted successfully.', 'info');
+        } catch (err) {
+            console.error('[Gym] Deletion failed:', err);
+            if (backupSession) {
+                Store.saveWorkoutSession(backupSession);
+                this.render();
+            }
+            showToast('Failed to delete workout: ' + (err.message || 'Unknown error'), 'error');
+        }
+    },
+
+    // -------------------------------------------------------------------------
+    // Refresh Gym Data (Cloud Plan, Sessions, Exercises, Sets, PRs)
+    // -------------------------------------------------------------------------
+    isRefreshing: false,
+    async refreshGymData() {
+        if (this.isRefreshing) return;
+        this.isRefreshing = true;
+        const btn = document.getElementById('btnGymRefresh');
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '↻ REFRESHING...';
+        }
+        showToast('Refreshing Gym data...', 'info');
+
+        try {
+            if (typeof SupabaseService !== 'undefined' && SupabaseService.isAuthenticated()) {
+                const cloudData = await SupabaseService.fetchAllUserData();
+                if (typeof SyncEngine !== 'undefined') {
+                    SyncEngine.reconcile(cloudData);
+                } else {
+                    Store.loadFromCloud(cloudData);
+                }
+            } else {
+                Store.init();
+            }
+            showToast('UPDATED', 'success');
+            if (btn) {
+                btn.innerHTML = '✓ UPDATED';
+                setTimeout(() => {
+                    const b = document.getElementById('btnGymRefresh');
+                    if (b) b.innerHTML = '↻ REFRESH';
+                }, 2000);
+            }
+        } catch (err) {
+            console.error('[Gym] Refresh failed:', err);
+            showToast('Refresh failed: ' + (err.message || 'Network error'), 'error');
+            if (btn) btn.innerHTML = '↻ REFRESH';
+        } finally {
+            this.isRefreshing = false;
+            const b = document.getElementById('btnGymRefresh');
+            if (b) b.disabled = false;
+            this.render();
+        }
     },
 
     // -------------------------------------------------------------------------
@@ -2067,30 +2199,50 @@ const GymEngine = {
 
                     <div class="wizard-quick-splits">
                         <span style="font-size: 11px; color: var(--text-muted); font-weight: 700; text-transform: uppercase;">Quick Preset:</span>
-                        ${['Back + Biceps', 'Legs + Shoulders', 'Chest + Triceps', 'Push', 'Pull', 'Legs', 'Upper Body'].map(chip => `
+                        ${['Back + Biceps', 'Legs + Shoulders', 'Chest + Triceps', 'Chest + Biceps', 'Push', 'Pull', 'Legs', 'Upper Body'].map(chip => `
                             <button type="button" class="quick-split-chip" onclick="GymEngine.applyQuickSplitPreset('${chip}')">${chip}</button>
                         `).join('')}
                     </div>
 
+                    <datalist id="canonicalSplitPresets">
+                        <option value="Back + Biceps">
+                        <option value="Legs + Shoulders">
+                        <option value="Chest + Triceps">
+                        <option value="Chest + Biceps">
+                        <option value="Back + Triceps">
+                        <option value="Push">
+                        <option value="Pull">
+                        <option value="Legs">
+                        <option value="Upper Body">
+                        <option value="Lower Body">
+                        <option value="Full Body">
+                        <option value="Core + Cardio">
+                    </datalist>
+
                     <div class="wizard-routines-list">
-                        ${this.wizardData.selectedDays.map(dayKey => {
-                            const dayName = dayKey.charAt(0).toUpperCase() + dayKey.slice(1);
-                            const currentVal = this.wizardData.dayRoutines[dayKey]?.routineName || '';
-                            return `
-                                <div class="wizard-day-input-row">
-                                    <div class="wizard-day-label">
-                                        <span class="day-badge-tag">${dayName}</span>
+                        ${(() => {
+                            const CANONICAL_DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+                            const sortedDays = CANONICAL_DAYS.filter(k => this.wizardData.selectedDays.includes(k));
+                            return sortedDays.map(dayKey => {
+                                const dayName = dayKey.charAt(0).toUpperCase() + dayKey.slice(1);
+                                const currentVal = this.wizardData.dayRoutines[dayKey]?.routineName || this.wizardData.dayRoutines[dayKey]?.workoutType || '';
+                                return `
+                                    <div class="wizard-day-input-row">
+                                        <div class="wizard-day-label">
+                                            <span class="day-badge-tag">${dayName}</span>
+                                        </div>
+                                        <input
+                                            type="text"
+                                            list="canonicalSplitPresets"
+                                            class="form-input"
+                                            placeholder="e.g. Chest + Biceps, Back + Biceps, Legs + Shoulders"
+                                            value="${currentVal}"
+                                            oninput="GymEngine.updateDayRoutineName('${dayKey}', this.value)"
+                                        >
                                     </div>
-                                    <input
-                                        type="text"
-                                        class="form-input"
-                                        placeholder="e.g. Back + Biceps, Legs + Shoulders, Chest + Triceps"
-                                        value="${currentVal}"
-                                        oninput="GymEngine.updateDayRoutineName('${dayKey}', this.value)"
-                                    >
-                                </div>
-                            `;
-                        }).join('')}
+                                `;
+                            }).join('');
+                        })()}
                     </div>
 
                     ${this.wizardData.error ? `
@@ -2223,12 +2375,13 @@ const GymEngine = {
 
             if (isTrainDay) {
                 const userRoutine = this.wizardData.dayRoutines[dayKey] || {};
-                const rName = userRoutine.routineName?.trim() || `${dayCapital} Workout`;
+                const rName = (userRoutine.routineName || userRoutine.workoutType || '').trim() || `${dayCapital} Workout`;
                 const muscleGroups = userRoutine.muscleGroups || (rName ? rName.split('+').map(s => s.trim()) : []);
                 schedule[dayKey] = {
                     dayKey,
                     dayName: dayCapital,
                     routineName: rName,
+                    workoutType: rName,
                     isRestDay: false,
                     muscleGroups,
                     exercises: userRoutine.exercises || []
@@ -2238,6 +2391,7 @@ const GymEngine = {
                     dayKey,
                     dayName: dayCapital,
                     routineName: 'Rest',
+                    workoutType: 'Rest',
                     isRestDay: true,
                     muscleGroups: [],
                     exercises: []
@@ -2251,7 +2405,9 @@ const GymEngine = {
         });
 
         this.closeEditPlanModal();
-        showToast('Workout plan updated successfully!', 'success');
+        showToast('PLAN SAVED', 'success');
+        // Re-read persisted plan from Store
+        Store.getGymState();
         this.render();
     },
 

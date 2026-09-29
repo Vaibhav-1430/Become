@@ -10479,6 +10479,37 @@ html, body {
     transform: translateY(-1px);
 }
 
+.btn-delete-workout {
+    appearance: none;
+    background: rgba(244, 63, 94, 0.1);
+    border: 1px solid rgba(244, 63, 94, 0.3);
+    color: var(--rose, #f43f5e);
+    padding: 6px 12px;
+    border-radius: var(--forge-radius-sm);
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    transition: all var(--forge-motion-fast);
+}
+
+.btn-delete-workout:hover {
+    background: rgba(244, 63, 94, 0.22);
+    border-color: rgba(244, 63, 94, 0.6);
+    transform: translateY(-1px);
+}
+
+.btn-gym-refresh {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    font-weight: 700;
+    transition: all var(--forge-motion-fast);
+}
+
 /* ==========================================================================
    PRODUCTION AUTHENTICATION & PROFILE SYSTEM
    Dark-first luxury design system matching BOSS StudyOS specifications

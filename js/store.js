@@ -108,6 +108,9 @@ class StorageManager {
 
     async init() {
         try {
+            if (!this.memoryState) {
+                this.memoryState = typeof DEFAULT_STATE !== 'undefined' ? JSON.parse(JSON.stringify(DEFAULT_STATE)) : {};
+            }
             const raw = localStorage.getItem(this.localKey);
             if (raw) {
                 const parsed = JSON.parse(raw);
@@ -2101,17 +2104,34 @@ class StorageManager {
         if (!this.memoryState.gym.customExercises) {
             this.memoryState.gym.customExercises = [];
         }
-        // Automatically seed user's actual recurring weekly split:
-        // Mon: Back + Biceps | Tue: Legs + Shoulders | Wed: Chest + Triceps | Thu: Back + Biceps | Fri: Legs + Shoulders | Sat: Chest + Triceps | Sun: Rest
-        if (!this.memoryState.gym.isConfigured || !this.memoryState.gym.schedule || !this.memoryState.gym.schedule.monday || this.memoryState.gym.schedule.monday.routineName !== 'Back + Biceps') {
+        // Initialize default recurring weekly split if unconfigured or missing schedule
+        if (!this.memoryState.gym.isConfigured || !this.memoryState.gym.schedule || Object.keys(this.memoryState.gym.schedule).length === 0) {
             this.initDefaultGymSplit(true);
+        } else {
+            // Defensive repair: ensure all 7 days have stable dayKey, dayName, routineName, workoutType
+            const schedule = this.memoryState.gym.schedule;
+            const dayKeys = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+            dayKeys.forEach(k => {
+                const day = schedule[k];
+                if (day) {
+                    const dayCapital = k.charAt(0).toUpperCase() + k.slice(1);
+                    if (!day.dayKey) day.dayKey = k;
+                    if (!day.dayName || day.dayName === 'Chest + Triceps') day.dayName = dayCapital;
+                    if (!day.routineName) {
+                        day.routineName = day.workoutType || (k === 'wednesday' ? 'Chest + Triceps' : (day.isRestDay ? 'Rest' : `${dayCapital} Workout`));
+                    }
+                    if (!day.workoutType) {
+                        day.workoutType = day.routineName;
+                    }
+                }
+            });
         }
         return this.memoryState.gym;
     }
 
     initDefaultGymSplit(force = false) {
         const gym = this.memoryState.gym || this.getGymState();
-        if (gym.isConfigured && !force && gym.schedule && gym.schedule.monday && gym.schedule.monday.routineName === 'Back + Biceps') {
+        if (gym.isConfigured && !force && gym.schedule && Object.keys(gym.schedule).length >= 7) {
             return;
         }
 
@@ -2121,6 +2141,7 @@ class StorageManager {
                 dayKey: 'monday',
                 dayName: 'Monday',
                 routineName: 'Back + Biceps',
+                workoutType: 'Back + Biceps',
                 isRestDay: false,
                 muscleGroups: ['Back', 'Biceps'],
                 exercises: []
@@ -2129,13 +2150,16 @@ class StorageManager {
                 dayKey: 'tuesday',
                 dayName: 'Tuesday',
                 routineName: 'Legs + Shoulders',
+                workoutType: 'Legs + Shoulders',
                 isRestDay: false,
                 muscleGroups: ['Legs', 'Shoulders'],
                 exercises: []
             },
             wednesday: {
                 dayKey: 'wednesday',
-                dayName: 'Chest + Triceps',
+                dayName: 'Wednesday',
+                routineName: 'Chest + Triceps',
+                workoutType: 'Chest + Triceps',
                 isRestDay: false,
                 muscleGroups: ['Chest', 'Triceps'],
                 exercises: []
@@ -2144,6 +2168,7 @@ class StorageManager {
                 dayKey: 'thursday',
                 dayName: 'Thursday',
                 routineName: 'Back + Biceps',
+                workoutType: 'Back + Biceps',
                 isRestDay: false,
                 muscleGroups: ['Back', 'Biceps'],
                 exercises: []
@@ -2152,6 +2177,7 @@ class StorageManager {
                 dayKey: 'friday',
                 dayName: 'Friday',
                 routineName: 'Legs + Shoulders',
+                workoutType: 'Legs + Shoulders',
                 isRestDay: false,
                 muscleGroups: ['Legs', 'Shoulders'],
                 exercises: []
@@ -2160,6 +2186,7 @@ class StorageManager {
                 dayKey: 'saturday',
                 dayName: 'Saturday',
                 routineName: 'Chest + Triceps',
+                workoutType: 'Chest + Triceps',
                 isRestDay: false,
                 muscleGroups: ['Chest', 'Triceps'],
                 exercises: []
@@ -2168,6 +2195,7 @@ class StorageManager {
                 dayKey: 'sunday',
                 dayName: 'Sunday',
                 routineName: 'Rest',
+                workoutType: 'Rest',
                 isRestDay: true,
                 muscleGroups: [],
                 exercises: []
@@ -2227,9 +2255,32 @@ class StorageManager {
             gym.settings = { ...gym.settings, ...planData.settings };
         }
         if (planData.schedule) {
-            gym.schedule = planData.schedule;
+            const cleanSchedule = {};
+            const dayKeys = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+            dayKeys.forEach(k => {
+                const day = planData.schedule[k] || gym.schedule[k] || {};
+                const dayCapital = k.charAt(0).toUpperCase() + k.slice(1);
+                const rName = (day.routineName || day.workoutType || (day.isRestDay ? 'Rest' : `${dayCapital} Workout`)).trim();
+                cleanSchedule[k] = {
+                    dayKey: k,
+                    dayName: dayCapital,
+                    routineName: rName,
+                    workoutType: rName,
+                    isRestDay: !!day.isRestDay,
+                    muscleGroups: Array.isArray(day.muscleGroups) && day.muscleGroups.length > 0 
+                        ? day.muscleGroups 
+                        : (rName && !day.isRestDay ? rName.split('+').map(s => s.trim()) : []),
+                    exercises: Array.isArray(day.exercises) ? day.exercises : []
+                };
+            });
+            gym.schedule = cleanSchedule;
         }
-        this.save();
+        this.save(true);
+        if (typeof window !== 'undefined' && window.SyncEngine && typeof window.SyncEngine.pushWorkoutPlan === 'function') {
+            window.SyncEngine.pushWorkoutPlan(gym.schedule, gym.settings);
+        } else if (typeof SupabaseService !== 'undefined' && SupabaseService.isAuthenticated()) {
+            SupabaseService.saveWorkoutPlan(gym.schedule, gym.settings);
+        }
         return gym;
     }
 
@@ -2243,7 +2294,20 @@ class StorageManager {
     getWorkoutTemplateForDay(dayKey) {
         const gym = this.getGymState();
         const key = (dayKey || '').toLowerCase();
-        return gym.schedule[key] || null;
+        const raw = gym.schedule[key];
+        if (!raw) return null;
+        const dayCapital = key.charAt(0).toUpperCase() + key.slice(1);
+        const rName = (raw.routineName || raw.workoutType || (raw.isRestDay ? 'Rest' : `${dayCapital} Workout`)).trim();
+        return {
+            ...raw,
+            dayKey: key,
+            dayName: raw.dayName || dayCapital,
+            routineName: rName,
+            workoutType: rName,
+            isRestDay: !!raw.isRestDay,
+            muscleGroups: Array.isArray(raw.muscleGroups) ? raw.muscleGroups : [],
+            exercises: Array.isArray(raw.exercises) ? raw.exercises : []
+        };
     }
 
     getTodayWorkoutTemplate(dateStr = null) {
@@ -2251,32 +2315,55 @@ class StorageManager {
         const dayIndex = new Date(targetDate + 'T12:00:00').getDay();
         const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
         const dayKey = dayNames[dayIndex];
+        const dayCapital = dayKey.charAt(0).toUpperCase() + dayKey.slice(1);
+        const templ = this.getWorkoutTemplateForDay(dayKey) || {
+            dayKey,
+            dayName: dayCapital,
+            routineName: 'Rest',
+            workoutType: 'Rest',
+            isRestDay: true,
+            muscleGroups: [],
+            exercises: []
+        };
         return {
             dayKey,
-            dayName: dayKey.charAt(0).toUpperCase() + dayKey.slice(1),
+            dayName: dayCapital,
             date: targetDate,
-            template: this.getWorkoutTemplateForDay(dayKey)
+            template: templ
         };
+    }
+
+    _isValidUuid(id) {
+        return typeof id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+    }
+
+    _generateUuid() {
+        if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+            return crypto.randomUUID();
+        }
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+            const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
+            return v.toString(16);
+        });
     }
 
     saveWorkoutSession(sessionData) {
         const gym = this.getGymState();
         if (!gym.sessions) gym.sessions = [];
 
-        let totalVolume = 0;
-        let totalSets = 0;
-        let totalReps = 0;
+        let calcVolume = 0;
+        let calcSets = 0;
+        let calcReps = 0;
 
         (sessionData.exercises || []).forEach(ex => {
             if (!ex.skipped) {
                 (ex.sets || []).forEach(s => {
-                    const wt = parseFloat(s.weightKg) || 0;
-                    const rp = parseInt(s.reps, 10) || 0;
-                    // Count only completed sets (or sets that have valid reps and were marked complete)
-                    if (s.completed && rp > 0) {
-                        totalSets++;
-                        totalReps += rp;
-                        totalVolume += (wt * rp);
+                    const wt = parseFloat(s.weightKg ?? s.weight_kg ?? 0) || 0;
+                    const rp = parseInt(s.reps ?? 0, 10) || 0;
+                    if (s.completed !== false && (rp > 0 || wt > 0 || s.completed === true)) {
+                        calcSets++;
+                        calcReps += rp;
+                        calcVolume += (wt * rp);
                     }
                 });
             }
@@ -2288,28 +2375,39 @@ class StorageManager {
         const dayName = dayNames[dObj.getDay()];
 
         const currentAuthId = (typeof SupabaseService !== 'undefined' && SupabaseService.getUserId()) || sessionData.userId || 'default_user';
+        const finalSessionId = (sessionData.id && this._isValidUuid(sessionData.id)) ? sessionData.id : this._generateUuid();
+        const routineName = (sessionData.routineName || sessionData.workoutType || sessionData.workout_type || 'Custom Workout').trim();
+        const durationMin = Number(sessionData.durationMinutes ?? sessionData.duration ?? sessionData.duration_minutes ?? 0) || 0;
+        const totalSets = (sessionData.totalSets ?? sessionData.total_sets) ? Number(sessionData.totalSets ?? sessionData.total_sets) : calcSets;
+        const totalVolumeKg = (sessionData.totalVolumeKg ?? sessionData.total_volume_kg) ? Math.round(Number(sessionData.totalVolumeKg ?? sessionData.total_volume_kg)) : Math.round(calcVolume);
+        const totalReps = (sessionData.totalReps ?? sessionData.total_reps) ? Number(sessionData.totalReps ?? sessionData.total_reps) : calcReps;
+
+        const photoPath = sessionData.gym_photo_path || sessionData.gymPhoto?.storagePath || null;
+        const photoUrl = sessionData.gymPhoto?.url || sessionData.gym_photo_url || (sessionData.gymPhoto?.base64 && sessionData.gymPhoto.base64.startsWith('data:') ? sessionData.gymPhoto.base64 : null);
+
         const entry = {
-            id: sessionData.id || ('gym_sess_' + Date.now()),
+            id: finalSessionId,
             userId: currentAuthId,
             date: targetDate,
-            dayOfWeek: sessionData.dayOfWeek || dayName,
-            dayKey: sessionData.dayKey || dayName.toLowerCase(),
-            workoutType: sessionData.routineName || sessionData.workoutType || 'Custom Workout',
-            routineName: sessionData.routineName || sessionData.workoutType || 'Custom Workout',
-            durationMinutes: sessionData.durationMinutes || sessionData.duration || 0,
-            duration: sessionData.durationMinutes || sessionData.duration || 0,
-            startedAt: sessionData.startedAt || null,
-            endedAt: sessionData.endedAt || DateUtils.nowISO(),
-            status: 'completed',
-            totalVolumeKg: Math.round(totalVolume),
+            dayOfWeek: sessionData.dayOfWeek || sessionData.day_of_week || dayName,
+            dayKey: (sessionData.dayKey || sessionData.day_key || dayName).toLowerCase(),
+            workoutType: routineName,
+            routineName: routineName,
+            durationMinutes: durationMin,
+            duration: durationMin,
+            startedAt: sessionData.startedAt || sessionData.started_at || null,
+            endedAt: sessionData.endedAt || sessionData.ended_at || DateUtils.nowISO(),
+            status: sessionData.status || 'completed',
+            totalVolumeKg,
             totalSets,
             totalReps,
-            completedAt: DateUtils.nowISO(),
+            completedAt: sessionData.completedAt || sessionData.created_at || DateUtils.nowISO(),
+            updatedAt: DateUtils.nowISO(),
             // Mandatory gym check-in photo storage
-            gymPhoto: sessionData.gymPhoto || null,
-            gym_photo_id: sessionData.gymPhoto?.id || sessionData.gym_photo_id || null,
-            gym_photo_path: sessionData.gym_photo_path || sessionData.gymPhoto?.storagePath || null,
-            gym_photo_url: sessionData.gymPhoto?.url || sessionData.gym_photo_url || null,
+            gymPhoto: sessionData.gymPhoto || (photoPath ? { id: finalSessionId + '_photo', storagePath: photoPath, url: photoUrl } : null),
+            gym_photo_id: sessionData.gymPhoto?.id || sessionData.gym_photo_id || (photoPath ? finalSessionId + '_photo' : null),
+            gym_photo_path: photoPath,
+            gym_photo_url: photoUrl,
             gym_photo_created_at: sessionData.gymPhoto?.createdAt || sessionData.gym_photo_created_at || null,
             exercises: sessionData.exercises || [],
             notes: sessionData.notes || ''
@@ -2317,10 +2415,24 @@ class StorageManager {
 
         this.calculateAndTagSessionPRs(entry);
 
-        gym.sessions.unshift(entry);
+        // Upsert locally: if existing record has same ID or same stable signature, update in-place
+        const existingIdx = gym.sessions.findIndex(s => s.id === entry.id || (
+            s.date === entry.date &&
+            (s.workoutType || s.routineName) === entry.workoutType &&
+            Math.abs((s.totalVolumeKg || 0) - entry.totalVolumeKg) < 0.1 &&
+            (s.totalSets || 0) === entry.totalSets
+        ));
+
+        if (existingIdx >= 0) {
+            gym.sessions[existingIdx] = { ...gym.sessions[existingIdx], ...entry };
+        } else {
+            gym.sessions.unshift(entry);
+        }
+
         gym.activeSession = null;
-        this.save();
-        if (typeof window !== 'undefined' && window.SyncEngine) {
+        this.save(true);
+
+        if (typeof window !== 'undefined' && window.SyncEngine && typeof window.SyncEngine.pushWorkoutSession === 'function') {
             window.SyncEngine.pushWorkoutSession(entry);
         }
         return entry;
@@ -2332,15 +2444,160 @@ class StorageManager {
         const initial = gym.sessions.length;
         gym.sessions = gym.sessions.filter(s => s.id !== id);
         if (gym.sessions.length !== initial) {
-            this.save();
+            this.save(true);
+            if (typeof window !== 'undefined' && window.SyncEngine && typeof window.SyncEngine.pushDeleteWorkoutSession === 'function') {
+                window.SyncEngine.pushDeleteWorkoutSession(id);
+            } else if (typeof SupabaseService !== 'undefined' && SupabaseService.isAuthenticated()) {
+                SupabaseService.deleteWorkoutSession(id).catch(e => console.warn('[Store] Remote delete error:', e));
+            }
             return true;
         }
         return false;
     }
 
+    toWorkoutSessionViewModel(s) {
+        if (!s) return null;
+        const exercises = Array.isArray(s.exercises) ? s.exercises : [];
+        let calcSets = 0;
+        let calcVolume = 0;
+        let calcReps = 0;
+        let calcExerciseCount = 0;
+        exercises.forEach(ex => {
+            if (!ex.skipped) {
+                calcExerciseCount++;
+                (ex.sets || []).forEach(st => {
+                    const isCompleted = st.completed !== false;
+                    const wt = Number(st.weightKg ?? st.weight_kg ?? 0) || 0;
+                    const rp = Number(st.reps ?? 0) || 0;
+                    if (isCompleted && (rp > 0 || wt > 0 || st.completed === true)) {
+                        calcSets++;
+                        calcReps += rp;
+                        calcVolume += (wt * rp);
+                    }
+                });
+            }
+        });
+
+        const routineName = (s.workoutType || s.workout_type || s.routineName || 'Custom Workout').trim();
+        let durationMinutes = Number(s.durationMinutes ?? s.duration_minutes ?? s.duration ?? 0) || 0;
+        const started = s.startedAt || s.started_at;
+        const ended = s.endedAt || s.ended_at;
+        if (durationMinutes <= 0 && started && ended) {
+            try {
+                const diffMs = new Date(ended).getTime() - new Date(started).getTime();
+                if (diffMs > 0) {
+                    durationMinutes = Math.round(diffMs / 60000);
+                }
+            } catch (e) {}
+        }
+        const rawSets = Number(s.totalSets ?? s.total_sets ?? 0) || 0;
+        const totalSets = rawSets > 0 ? rawSets : calcSets;
+        const rawVol = Number(s.totalVolumeKg ?? s.total_volume_kg ?? 0) || 0;
+        const totalVolumeKg = rawVol > 0 ? Math.round(rawVol) : Math.round(calcVolume);
+        const rawReps = Number(s.totalReps ?? s.total_reps ?? 0) || 0;
+        const totalReps = rawReps > 0 ? rawReps : calcReps;
+        const exerciseCount = exercises.length > 0 ? exercises.length : calcExerciseCount;
+
+        const photoPath = s.gym_photo_path || s.gymPhoto?.storagePath || null;
+        const photoUrl = s.gymPhoto?.url || s.gym_photo_url || (s.gymPhoto?.base64 && s.gymPhoto.base64.startsWith('data:') ? s.gymPhoto.base64 : null);
+
+        const targetDate = s.date || DateUtils.todayIST();
+        let dayOfWeek = s.dayOfWeek || s.day_of_week || '';
+        let dayKey = (s.dayKey || s.day_key || '').toLowerCase();
+        if (!dayOfWeek || !dayKey) {
+            const dObj = new Date(targetDate + 'T12:00:00');
+            const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+            const dName = dayNames[dObj.getDay()];
+            dayOfWeek = dayOfWeek || dName;
+            dayKey = dayKey || dName.toLowerCase();
+        }
+
+        return {
+            id: s.id,
+            userId: s.userId || s.user_id || '',
+            date: targetDate,
+            dayOfWeek,
+            dayKey,
+            workoutType: routineName,
+            routineName: routineName,
+            duration: durationMinutes,
+            durationMinutes: durationMinutes,
+            exerciseCount,
+            setCount: totalSets,
+            totalSets,
+            totalVolumeKg,
+            totalReps,
+            status: s.status || 'completed',
+            gymPhoto: s.gymPhoto || (photoPath ? { id: s.id + '_photo', storagePath: photoPath, url: photoUrl, createdAt: s.completedAt || s.createdAt } : null),
+            gym_photo_path: photoPath,
+            gym_photo_url: photoUrl,
+            startedAt: s.startedAt || s.started_at || null,
+            endedAt: s.endedAt || s.ended_at || null,
+            completedAt: s.completedAt || s.created_at || s.endedAt || null,
+            updatedAt: s.updatedAt || s.updated_at || null,
+            notes: s.notes || '',
+            personalRecords: s.personalRecords || s.personal_records || [],
+            exercises
+        };
+    }
+
+    deduplicateWorkoutSessions(sessions) {
+        if (!Array.isArray(sessions)) return [];
+        const idMap = new Map();
+        const signatureMap = new Map();
+        const result = [];
+
+        for (const raw of sessions) {
+            const sess = this.toWorkoutSessionViewModel(raw);
+            if (!sess || !sess.id) continue;
+
+            // 1. Primary key deduplication
+            if (idMap.has(sess.id)) {
+                const existing = idMap.get(sess.id);
+                // Keep the richer record
+                if ((sess.exercises?.length || 0) > (existing.exercises?.length || 0) || (sess.totalVolumeKg > existing.totalVolumeKg)) {
+                    idMap.set(sess.id, sess);
+                    const idx = result.findIndex(r => r.id === sess.id);
+                    if (idx >= 0) result[idx] = sess;
+                }
+                continue;
+            }
+            idMap.set(sess.id, sess);
+
+            // 2. Conservative signature deduplication (only collapse demonstrably identical sessions)
+            const started = sess.startedAt ? sess.startedAt.slice(0, 16) : '';
+            const ended = sess.endedAt ? sess.endedAt.slice(0, 16) : '';
+            const photoKey = sess.gym_photo_path || '';
+            const signature = `${sess.date}|${sess.workoutType.toLowerCase()}|${started}|${ended}|${sess.durationMinutes}|${sess.totalSets}|${sess.totalVolumeKg}|${photoKey}`;
+
+            if (signatureMap.has(signature)) {
+                const existing = signatureMap.get(signature);
+                if ((sess.exercises?.length || 0) > (existing.exercises?.length || 0)) {
+                    signatureMap.set(signature, sess);
+                    const idx = result.findIndex(r => r.id === existing.id);
+                    if (idx >= 0) result[idx] = sess;
+                }
+                continue;
+            }
+
+            signatureMap.set(signature, sess);
+            result.push(sess);
+        }
+
+        return result.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    }
+
+    getWorkoutSessions() {
+        const rawSessions = this.getGymState().sessions || [];
+        return this.deduplicateWorkoutSessions(rawSessions);
+    }
+
+    getWorkoutSessionById(id) {
+        return this.getWorkoutSessions().find(s => s.id === id) || null;
+    }
+
     getAvailableHistoryMonths() {
-        const gym = this.getGymState();
-        const sessions = gym.sessions || [];
+        const sessions = this.getWorkoutSessions();
         const monthSet = new Set();
         
         // Include current month
@@ -2369,8 +2626,7 @@ class StorageManager {
     }
 
     getMonthSummary(monthKey) {
-        const gym = this.getGymState();
-        const allSessions = gym.sessions || [];
+        const allSessions = this.getWorkoutSessions();
         const targetMonth = monthKey || DateUtils.todayIST().slice(0, 7);
         const sessions = allSessions.filter(s => (s.date || '').startsWith(targetMonth));
 
@@ -2444,14 +2700,6 @@ class StorageManager {
                 }
             });
         });
-    }
-
-    getWorkoutSessions() {
-        return (this.getGymState().sessions || []);
-    }
-
-    getWorkoutSessionById(id) {
-        return (this.getGymState().sessions || []).find(s => s.id === id) || null;
     }
 
     getActiveWorkoutSession() {
@@ -2892,42 +3140,69 @@ class StorageManager {
             this.memoryState.gym.sessions = this.memoryState.gym.sessions || [];
             cloudData.workoutSessions.forEach(ws => {
                 const idx = this.memoryState.gym.sessions.findIndex(ls => ls.id === ws.id);
+                const existing = idx >= 0 ? this.memoryState.gym.sessions[idx] : null;
+                const exercises = (Array.isArray(ws.exercises) && ws.exercises.length > 0) 
+                    ? ws.exercises 
+                    : (existing && Array.isArray(existing.exercises) ? existing.exercises : []);
+
+                let calcSets = 0;
+                let calcVolume = 0;
+                let calcReps = 0;
+                exercises.forEach(ex => {
+                    if (!ex.skipped) {
+                        (ex.sets || []).forEach(st => {
+                            const wt = Number(st.weightKg ?? st.weight_kg ?? 0) || 0;
+                            const rp = Number(st.reps ?? 0) || 0;
+                            if (st.completed !== false && (rp > 0 || wt > 0 || st.completed === true)) {
+                                calcSets++;
+                                calcReps += rp;
+                                calcVolume += (wt * rp);
+                            }
+                        });
+                    }
+                });
+
+                const rawSets = Number(ws.total_sets ?? ws.totalSets ?? 0) || 0;
+                const totalSets = rawSets > 0 ? rawSets : calcSets;
+                const rawVol = Number(ws.total_volume_kg ?? ws.totalVolumeKg ?? 0) || 0;
+                const totalVolumeKg = rawVol > 0 ? Math.round(rawVol) : Math.round(calcVolume);
+                const rawReps = Number(ws.total_reps ?? ws.totalReps ?? 0) || 0;
+                const totalReps = rawReps > 0 ? rawReps : calcReps;
+                const durMin = Number(ws.duration_minutes ?? ws.durationMinutes ?? ws.duration ?? 0) || 0;
+                const routineName = (ws.workout_type || ws.workoutType || ws.routineName || 'Custom Workout').trim();
+
                 const wsObj = {
                     id: ws.id,
-                    userId: ws.user_id,
+                    userId: ws.user_id || ws.userId,
                     date: ws.date,
-                    dayOfWeek: ws.day_of_week,
-                    dayKey: ws.day_key,
-                    routineName: ws.workout_type,
-                    workoutType: ws.workout_type,
-                    durationMinutes: ws.duration_minutes,
-                    duration: ws.duration_minutes,
+                    dayOfWeek: ws.day_of_week || ws.dayOfWeek,
+                    dayKey: (ws.day_key || ws.dayKey || '').toLowerCase(),
+                    routineName,
+                    workoutType: routineName,
+                    durationMinutes: durMin,
+                    duration: durMin,
                     status: ws.status || 'completed',
-                    gym_photo_path: ws.gym_photo_path || null,
-                    gymPhoto: ws.gym_photo_path ? {
+                    gym_photo_path: ws.gym_photo_path || (existing ? existing.gym_photo_path : null),
+                    gymPhoto: (ws.gym_photo_path || (existing && existing.gym_photo_path)) ? {
                         id: ws.id + '_photo',
-                        storagePath: ws.gym_photo_path,
-                        url: null,
-                        createdAt: ws.created_at
+                        storagePath: ws.gym_photo_path || existing.gym_photo_path,
+                        url: existing ? (existing.gymPhoto?.url || existing.gym_photo_url) : null,
+                        createdAt: ws.created_at || ws.completedAt
                     } : null,
                     gym_photo_id: ws.gym_photo_path ? (ws.id + '_photo') : null,
-                    gym_photo_url: null,
+                    gym_photo_url: existing ? (existing.gymPhoto?.url || existing.gym_photo_url) : null,
                     gym_photo_created_at: ws.created_at || null,
-                    totalVolumeKg: Number(ws.total_volume_kg) || 0,
-                    totalSets: ws.total_sets || 0,
-                    totalReps: ws.total_reps || 0,
+                    totalVolumeKg,
+                    totalSets,
+                    totalReps,
                     notes: ws.notes || '',
-                    startedAt: ws.started_at,
-                    endedAt: ws.ended_at,
-                    completedAt: ws.created_at,
-                    exercises: ws.exercises || []
+                    startedAt: ws.started_at || ws.startedAt,
+                    endedAt: ws.ended_at || ws.endedAt,
+                    completedAt: ws.created_at || ws.completedAt,
+                    updatedAt: ws.updated_at || ws.updatedAt,
+                    exercises
                 };
                 if (idx >= 0) {
-                    const existing = this.memoryState.gym.sessions[idx];
-                    if (existing && existing.gym_photo_url && (!wsObj.gym_photo_path || wsObj.gym_photo_path === existing.gym_photo_path)) {
-                        wsObj.gym_photo_url = existing.gym_photo_url;
-                        if (wsObj.gymPhoto) wsObj.gymPhoto.url = existing.gym_photo_url;
-                    }
                     this.memoryState.gym.sessions[idx] = wsObj;
                 } else {
                     this.memoryState.gym.sessions.push(wsObj);

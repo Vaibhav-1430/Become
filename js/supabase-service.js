@@ -94,6 +94,9 @@ const SupabaseService = {
                 this.currentSession = session;
                 this.currentUser = session.user;
                 this._syncAuthCookie(session.access_token);
+                if (typeof SyncEngine !== 'undefined' && SyncEngine.initRealtime) {
+                    SyncEngine.initRealtime(this.client, session.user.id);
+                }
             }
 
             // Listen for auth state transitions
@@ -104,8 +107,14 @@ const SupabaseService = {
 
                 if (session && session.access_token) {
                     this._syncAuthCookie(session.access_token);
+                    if (typeof SyncEngine !== 'undefined' && SyncEngine.initRealtime) {
+                        SyncEngine.initRealtime(this.client, session.user.id);
+                    }
                 } else {
                     this._clearAuthCookie();
+                    if (typeof SyncEngine !== 'undefined' && SyncEngine.unsubscribeRealtime) {
+                        SyncEngine.unsubscribeRealtime();
+                    }
                 }
 
                 // Notify all registered listeners
@@ -420,7 +429,7 @@ const SupabaseService = {
 
                 workoutSessions.forEach(s => {
                     const sessEx = exerciseMap[s.id] || [];
-                    s.exercises = sessEx.map(ex => ({
+                    const exercises = sessEx.map(ex => ({
                         id: ex.id,
                         exerciseId: ex.exercise_id,
                         name: ex.exercise_name_snapshot,
@@ -431,8 +440,8 @@ const SupabaseService = {
                         notes: ex.notes,
                         sets: (setsMap[ex.id] || []).map(st => ({
                             setNumber: st.set_number,
-                            weightKg: st.weight_kg,
-                            reps: st.reps,
+                            weightKg: parseFloat(st.weight_kg) || 0,
+                            reps: parseInt(st.reps, 10) || 0,
                             rpe: st.rpe,
                             completed: st.completed,
                             isWeightPr: st.is_weight_pr,
@@ -440,6 +449,38 @@ const SupabaseService = {
                             completedAt: st.completed_at
                         }))
                     }));
+                    s.exercises = exercises;
+
+                    // Ensure both camelCase and snake_case properties are populated
+                    const routineName = (s.workout_type || s.workoutType || 'Custom Workout').trim();
+                    s.routineName = routineName;
+                    s.workoutType = routineName;
+                    s.workout_type = routineName;
+                    s.duration = Number(s.duration_minutes ?? s.duration ?? 0) || 0;
+                    s.durationMinutes = s.duration;
+
+                    // Recalculate sets and volume from relational exercises & sets if denormalized fields are 0
+                    let calcSets = 0;
+                    let calcVolume = 0;
+                    let calcReps = 0;
+                    exercises.forEach(ex => {
+                        if (!ex.skipped) {
+                            (ex.sets || []).forEach(st => {
+                                if (st.completed !== false && (st.reps > 0 || st.weightKg > 0 || st.completed === true)) {
+                                    calcSets++;
+                                    calcReps += st.reps;
+                                    calcVolume += (st.weightKg * st.reps);
+                                }
+                            });
+                        }
+                    });
+
+                    s.total_sets = (s.total_sets && s.total_sets > 0) ? s.total_sets : calcSets;
+                    s.totalSets = s.total_sets;
+                    s.total_volume_kg = (s.total_volume_kg && Number(s.total_volume_kg) > 0) ? Number(s.total_volume_kg) : Math.round(calcVolume);
+                    s.totalVolumeKg = s.total_volume_kg;
+                    s.total_reps = (s.total_reps && s.total_reps > 0) ? s.total_reps : calcReps;
+                    s.totalReps = s.total_reps;
                 });
             }
             results.workoutSessions = workoutSessions;
@@ -916,11 +957,29 @@ const SupabaseService = {
         const userId = this.getUserId();
         if (!this.client || !userId) return false;
         try {
+            // Canonical schedule normalization
+            const cleanSchedule = {};
+            const dayKeys = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+            dayKeys.forEach(k => {
+                const day = (schedule && schedule[k]) ? schedule[k] : {};
+                const dayCapital = k.charAt(0).toUpperCase() + k.slice(1);
+                const rName = (day.routineName || day.workoutType || (day.isRestDay ? 'Rest' : `${dayCapital} Workout`)).trim();
+                cleanSchedule[k] = {
+                    dayKey: k,
+                    dayName: dayCapital,
+                    routineName: rName,
+                    workoutType: rName,
+                    isRestDay: !!day.isRestDay,
+                    muscleGroups: Array.isArray(day.muscleGroups) ? day.muscleGroups : (rName && !day.isRestDay ? rName.split('+').map(s => s.trim()) : []),
+                    exercises: Array.isArray(day.exercises) ? day.exercises : []
+                };
+            });
+
             const row = {
                 user_id: userId,
                 is_configured: true,
-                settings,
-                schedule,
+                settings: settings || {},
+                schedule: cleanSchedule,
                 updated_at: new Date().toISOString()
             };
 
@@ -936,6 +995,20 @@ const SupabaseService = {
         }
     },
 
+    _isValidUuid(id) {
+        return typeof id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+    },
+
+    _generateUuid() {
+        if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+            return crypto.randomUUID();
+        }
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+            const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
+            return v.toString(16);
+        });
+    },
+
     async saveWorkoutSession(sessionData) {
         const userId = this.getUserId();
         if (!this.client || !userId) {
@@ -943,15 +1016,15 @@ const SupabaseService = {
         }
 
         let photoPath = sessionData.gym_photo_path || sessionData.gymPhoto?.storagePath;
+        const sessionId = (sessionData.id && this._isValidUuid(sessionData.id)) ? sessionData.id : this._generateUuid();
 
         // If an offline workout had a captured base64 photo, upload it to gym-photos now
         if (!photoPath && (sessionData.gymPhoto?.base64 || (sessionData.gymPhoto?.url && sessionData.gymPhoto.url.startsWith('data:')))) {
             const raw = sessionData.gymPhoto.base64 || sessionData.gymPhoto.url;
             const blob = this.base64ToBlob(raw);
             if (blob) {
-                const sid = sessionData.id || ('sess_' + Date.now());
                 try {
-                    const uploadRes = await this.uploadGymPhotoBlob(blob, sid);
+                    const uploadRes = await this.uploadGymPhotoBlob(blob, sessionId);
                     if (uploadRes && uploadRes.path) {
                         photoPath = uploadRes.path;
                         sessionData.gym_photo_path = photoPath;
@@ -973,39 +1046,89 @@ const SupabaseService = {
         photoPath = this.normalizeGymPhotoPath(photoPath);
 
         try {
-            // 1. Insert workout_session
+            // Compute real volume and sets from exercises if not already populated
+            let calcSets = 0;
+            let calcVolume = 0;
+            let calcReps = 0;
+            (sessionData.exercises || []).forEach(ex => {
+                if (!ex.skipped) {
+                    (ex.sets || []).forEach(st => {
+                        const wt = Number(st.weightKg ?? st.weight_kg ?? 0) || 0;
+                        const rp = Number(st.reps ?? 0) || 0;
+                        if (st.completed !== false && (rp > 0 || wt > 0 || st.completed === true)) {
+                            calcSets++;
+                            calcReps += rp;
+                            calcVolume += (wt * rp);
+                        }
+                    });
+                }
+            });
+
+            const rawSets = Number(sessionData.totalSets ?? sessionData.total_sets ?? 0) || 0;
+            const totalSets = rawSets > 0 ? rawSets : calcSets;
+            const rawVol = Number(sessionData.totalVolumeKg ?? sessionData.total_volume_kg ?? 0) || 0;
+            const totalVolumeKg = rawVol > 0 ? Math.round(rawVol) : Math.round(calcVolume);
+            const rawReps = Number(sessionData.totalReps ?? sessionData.total_reps ?? 0) || 0;
+            const totalReps = rawReps > 0 ? rawReps : calcReps;
+            const routineName = (sessionData.workoutType || sessionData.routineName || 'Custom Workout').trim();
+            const durationMin = Number(sessionData.durationMinutes ?? sessionData.duration ?? sessionData.duration_minutes ?? 0) || 0;
+
+            // 1. Upsert workout_session with stable UUID
             const sessionRow = {
+                id: sessionId,
                 user_id: userId,
                 date: sessionData.date,
-                day_of_week: sessionData.dayOfWeek || sessionData.dayKey || '',
-                day_key: (sessionData.dayKey || '').toLowerCase(),
-                workout_type: sessionData.workoutType || sessionData.routineName || 'Custom Workout',
-                duration_minutes: sessionData.durationMinutes || sessionData.duration || 0,
-                status: 'completed',
+                day_of_week: sessionData.dayOfWeek || sessionData.day_of_week || sessionData.dayKey || '',
+                day_key: (sessionData.dayKey || sessionData.day_key || '').toLowerCase(),
+                workout_type: routineName,
+                duration_minutes: durationMin,
+                status: sessionData.status || 'completed',
                 gym_photo_path: photoPath,
-                total_volume_kg: sessionData.totalVolumeKg || 0,
-                total_sets: sessionData.totalSets || 0,
-                total_reps: sessionData.totalReps || 0,
+                total_volume_kg: totalVolumeKg,
+                total_sets: totalSets,
+                total_reps: totalReps,
                 notes: sessionData.notes || '',
-                started_at: sessionData.startedAt || null,
-                ended_at: sessionData.endedAt || new Date().toISOString(),
-                created_at: new Date().toISOString()
+                started_at: sessionData.startedAt || sessionData.started_at || null,
+                ended_at: sessionData.endedAt || sessionData.ended_at || new Date().toISOString(),
+                created_at: sessionData.completedAt || sessionData.createdAt || sessionData.created_at || new Date().toISOString(),
+                updated_at: new Date().toISOString()
             };
 
-            const { data: insertedSession, error: sErr } = await this.client
+            let upsertedSession = null;
+            const upsertQuery = this.client
                 .from('workout_sessions')
-                .insert([sessionRow])
-                .select()
-                .single();
+                .upsert(sessionRow, { onConflict: 'id' });
+
+            let sErr = null;
+            if (upsertQuery && typeof upsertQuery.select === 'function') {
+                const res = await upsertQuery.select().single();
+                sErr = res ? res.error : null;
+                upsertedSession = res?.data || sessionRow;
+            } else {
+                const res = await upsertQuery;
+                sErr = res ? res.error : null;
+                upsertedSession = sessionRow;
+            }
 
             if (sErr) throw sErr;
-            const newSessionId = insertedSession.id;
 
-            // 2. Insert exercises and sets
+            // 2. Clean previous exercises and sets if this was an update/retry to avoid duplicates
+            const { data: existingEx } = await this.client
+                .from('workout_exercises')
+                .select('id')
+                .eq('session_id', sessionId);
+
+            if (existingEx && existingEx.length > 0) {
+                const exIds = existingEx.map(e => e.id);
+                await this.client.from('workout_sets').delete().in('workout_exercise_id', exIds);
+                await this.client.from('workout_exercises').delete().eq('session_id', sessionId);
+            }
+
+            // 3. Insert exercises and sets
             for (let i = 0; i < (sessionData.exercises || []).length; i++) {
                 const ex = sessionData.exercises[i];
                 const exRow = {
-                    session_id: newSessionId,
+                    session_id: sessionId,
                     exercise_id: ex.exerciseId || ex.id || 'ex_' + i,
                     exercise_name_snapshot: ex.exerciseName || ex.name || 'Exercise',
                     muscle_group: ex.muscleGroup || null,
@@ -1030,14 +1153,14 @@ const SupabaseService = {
                 const sets = ex.sets || [];
                 const setRows = sets.map((st, idx) => ({
                     workout_exercise_id: insertedEx.id,
-                    set_number: st.setNumber || idx + 1,
-                    weight_kg: parseFloat(st.weightKg) || 0,
-                    reps: parseInt(st.reps, 10) || 0,
+                    set_number: st.setNumber || st.set_number || idx + 1,
+                    weight_kg: parseFloat(st.weightKg ?? st.weight_kg ?? 0) || 0,
+                    reps: parseInt(st.reps ?? 0, 10) || 0,
                     rpe: st.rpe ? parseFloat(st.rpe) : null,
                     completed: st.completed !== false,
-                    is_weight_pr: !!st.isWeightPr,
-                    is_rep_pr: !!st.isRepPr,
-                    completed_at: st.completedAt || new Date().toISOString()
+                    is_weight_pr: !!(st.isWeightPr || st.is_weight_pr),
+                    is_rep_pr: !!(st.isRepPr || st.is_rep_pr),
+                    completed_at: st.completedAt || st.completed_at || new Date().toISOString()
                 }));
 
                 if (setRows.length > 0) {
@@ -1046,10 +1169,135 @@ const SupabaseService = {
                 }
             }
 
-            return insertedSession;
+            return upsertedSession;
         } catch (err) {
             console.error('[SupabaseService] saveWorkoutSession error:', err);
             throw err;
+        }
+    },
+
+    async deleteWorkoutSession(sessionId) {
+        const userId = this.getUserId();
+        if (!this.client || !userId) {
+            throw new Error('Authentication required to delete workout session.');
+        }
+        if (!sessionId) {
+            throw new Error('Valid sessionId required for deletion.');
+        }
+
+        try {
+            // 1. Fetch session to get photo path and verify user ownership
+            const { data: sessionRow, error: fetchErr } = await this.client
+                .from('workout_sessions')
+                .select('id, user_id, gym_photo_path')
+                .eq('id', sessionId)
+                .eq('user_id', userId)
+                .maybeSingle();
+
+            if (fetchErr) throw fetchErr;
+            if (!sessionRow) {
+                console.warn('[SupabaseService] Session not found or already deleted:', sessionId);
+                return true;
+            }
+
+            // 2. Fetch exercises to delete child sets explicitly
+            const { data: exRows } = await this.client
+                .from('workout_exercises')
+                .select('id')
+                .eq('session_id', sessionId);
+
+            if (exRows && exRows.length > 0) {
+                const exIds = exRows.map(e => e.id);
+                await this.client
+                    .from('workout_sets')
+                    .delete()
+                    .in('workout_exercise_id', exIds);
+            }
+
+            // 3. Delete exercises
+            await this.client
+                .from('workout_exercises')
+                .delete()
+                .eq('session_id', sessionId);
+
+            // 4. Delete the session
+            const { error: delErr } = await this.client
+                .from('workout_sessions')
+                .delete()
+                .eq('id', sessionId)
+                .eq('user_id', userId);
+
+            if (delErr) throw delErr;
+
+            // 5. Delete associated private photo if present
+            if (sessionRow.gym_photo_path) {
+                await this.deleteGymPhoto(sessionRow.gym_photo_path);
+            }
+
+            return true;
+        } catch (err) {
+            console.error('[SupabaseService] deleteWorkoutSession error:', err);
+            throw err;
+        }
+    },
+
+    async deleteGymPhoto(photoPath) {
+        if (!this.client || !photoPath) return false;
+        try {
+            const cleanPath = this.normalizeGymPhotoPath(photoPath);
+            if (!cleanPath) return false;
+            const currentUserId = this.getUserId();
+            if (currentUserId && !cleanPath.startsWith(currentUserId + '/')) {
+                console.warn('[SupabaseService] Security check: cannot delete photo not owned by current user');
+                return false;
+            }
+            await this.client.storage.from('gym-photos').remove([cleanPath]);
+            if (this._signedUrlCache) {
+                const cacheKey = `${currentUserId}:${cleanPath}`;
+                this._signedUrlCache.delete(cacheKey);
+            }
+            return true;
+        } catch (e) {
+            console.warn('[SupabaseService] deleteGymPhoto warning:', e.message);
+            return false;
+        }
+    },
+
+    async cleanDuplicateWorkoutSessions() {
+        const userId = this.getUserId();
+        if (!this.client || !userId) return { cleanedCount: 0 };
+        try {
+            const { data: sessions, error } = await this.client
+                .from('workout_sessions')
+                .select('*')
+                .eq('user_id', userId)
+                .order('created_at', { ascending: true });
+
+            if (error || !sessions || sessions.length === 0) return { cleanedCount: 0 };
+
+            const groups = new Map();
+            for (const s of sessions) {
+                const key = `${s.date}|${(s.workout_type || '').toLowerCase()}|${s.duration_minutes}|${s.total_sets}|${s.total_volume_kg}`;
+                if (!groups.has(key)) groups.set(key, []);
+                groups.get(key).push(s);
+            }
+
+            let cleanedCount = 0;
+            for (const [key, group] of groups.entries()) {
+                if (group.length > 1) {
+                    // Keep the earliest created session
+                    const canonical = group[0];
+                    const redundant = group.slice(1);
+                    for (const r of redundant) {
+                        await this.deleteWorkoutSession(r.id);
+                        cleanedCount++;
+                    }
+                }
+            }
+            return { cleanedCount };
+        } catch (e) {
+            console.warn('[SupabaseService] cleanDuplicateWorkoutSessions error:', e.message);
+            return { cleanedCount: 0 };
         }
     },
 
