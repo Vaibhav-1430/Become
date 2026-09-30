@@ -201,53 +201,54 @@ const RecommendEngine = {
      * Deterministic StudyOS fallback when Gemini is unavailable
      */
     getDeterministicFallback() {
-        const todayStr = DateUtils.todayIST();
-        const nowTime = DateUtils.nowTimeIST();
-        const daySummary = TaskEngine.getDaySummary(todayStr);
-        const todayTasks = daySummary.tasks || [];
-        const availableWindow = this.calculateAvailableTimeWindow(nowTime, todayTasks);
-        const mistakes = Store.getMistakes();
-        const dueMistakes = mistakes.filter(m => !m.resolved && m.status !== 'fixed' && (m.revisitDate ? m.revisitDate <= todayStr : true));
-        const weaknessMap = Store.calculateWeaknessMap();
-        const weakTopics = [];
+        try {
+            const todayStr = (typeof DateUtils !== 'undefined' && DateUtils.todayIST) ? DateUtils.todayIST() : new Date().toISOString().split('T')[0];
+            const nowTime = (typeof DateUtils !== 'undefined' && DateUtils.nowTimeIST) ? DateUtils.nowTimeIST() : "10:00";
+            const daySummary = (typeof TaskEngine !== 'undefined' && TaskEngine.getDaySummary) ? TaskEngine.getDaySummary(todayStr) : { tasks: [] };
+            const todayTasks = daySummary.tasks || [];
+            const availableWindow = this.calculateAvailableTimeWindow(nowTime, todayTasks);
+            const mistakes = (typeof Store !== 'undefined' && Store.getMistakes) ? Store.getMistakes() : [];
+            const dueMistakes = mistakes.filter(m => !m.resolved && m.status !== 'fixed' && (m.revisitDate ? m.revisitDate <= todayStr : true));
+            const weaknessMap = (typeof Store !== 'undefined' && Store.calculateWeaknessMap) ? Store.calculateWeaknessMap() : {};
+            const weakTopics = [];
 
-        Object.keys(weaknessMap).forEach(k => {
-            (weaknessMap[k].topics || []).forEach(t => {
-                if (t.hasData && (t.tier === 'Weak' || t.tier === 'Needs Work')) {
-                    weakTopics.push({ ...t, groupName: weaknessMap[k].name, groupKey: k });
-                }
+            Object.keys(weaknessMap).forEach(k => {
+                (weaknessMap[k].topics || []).forEach(t => {
+                    if (t.hasData && (t.tier === 'Weak' || t.tier === 'Needs Work')) {
+                        weakTopics.push({ ...t, groupName: weaknessMap[k].name, groupKey: k });
+                    }
+                });
             });
-        });
 
-        const overdue = this.getOverdueTasks(todayStr);
-        const pendingToday = todayTasks.filter(t => t.isStudy && t.status !== APP_CONFIG.TASK_STATUS.COMPLETED);
+            const overdue = this.getOverdueTasks(todayStr);
+            const pendingToday = todayTasks.filter(t => t.isStudy && t.status !== (typeof APP_CONFIG !== 'undefined' ? APP_CONFIG.TASK_STATUS.COMPLETED : 'COMPLETED'));
 
-        // 1. Revision due
-        if (dueMistakes.length > 0 && availableWindow.durationMins >= 25) {
-            const topM = dueMistakes[0];
-            return {
-                primary: {
-                    type: "revision",
-                    taskId: null,
-                    subject: topM.subject || "DSA",
-                    topic: topM.topic || "Mistake Bank",
-                    title: `Review Mistake Bank: ${topM.topic}`,
-                    estimatedMinutes: Math.min(availableWindow.durationMins, 35),
-                    reason: `You have an available ${availableWindow.durationMins}-minute window (${availableWindow.label}) and ${topM.topic} has unresolved mistakes due for revision.`
-                },
-                alternatives: this.generateFallbackAlternatives(pendingToday, overdue, weakTopics, availableWindow)
-            };
-        }
+            // 1. Revision due
+            if (dueMistakes.length > 0 && availableWindow.durationMins >= 25) {
+                const topM = dueMistakes[0];
+                return {
+                    primary: {
+                        type: "revision",
+                        taskId: null,
+                        subject: topM.subject || "DSA",
+                        topic: topM.topic || "Mistake Bank",
+                        title: `Review Mistake Bank: ${topM.topic}`,
+                        estimatedMinutes: Math.min(availableWindow.durationMins, 35),
+                        reason: `You have an available ${availableWindow.durationMins}-minute window (${availableWindow.label}) and ${topM.topic} has unresolved mistakes due for revision.`
+                    },
+                    alternatives: this.generateFallbackAlternatives(pendingToday, overdue, weakTopics, availableWindow)
+                };
+            }
 
-        // 2. Weak topic
-        if (weakTopics.length > 0 && availableWindow.durationMins >= 30) {
-            const topW = weakTopics[0];
-            return {
-                primary: {
-                    type: "dsa",
-                    taskId: null,
-                    subject: topW.groupName || "DSA",
-                    topic: topW.topic,
+            // 2. Weak topic
+            if (weakTopics.length > 0 && availableWindow.durationMins >= 30) {
+                const topW = weakTopics[0];
+                return {
+                    primary: {
+                        type: "dsa",
+                        taskId: null,
+                        subject: topW.groupName || "DSA",
+                        topic: topW.topic,
                     title: `Target Weak Topic: Practice ${topW.topic}`,
                     estimatedMinutes: Math.min(availableWindow.durationMins, 45),
                     reason: `You have an available ${availableWindow.durationMins}-minute window and ${topW.topic} has recorded errors requiring concept reinforcement.`
@@ -273,19 +274,34 @@ const RecommendEngine = {
             };
         }
 
-        // 4. Default high priority
-        return {
-            primary: {
-                type: "dsa",
-                taskId: null,
-                subject: "DSA",
-                topic: "Striver A2Z Sheet",
-                title: "Solve Striver A2Z DSA Practice Problem",
-                estimatedMinutes: 35,
-                reason: "Consistent problem solving keeps algorithmic intuition sharp for placements."
-            },
-            alternatives: []
-        };
+            // 4. Default high priority
+            return {
+                primary: {
+                    type: "dsa",
+                    taskId: null,
+                    subject: "DSA",
+                    topic: "Striver A2Z Sheet",
+                    title: "Solve Striver A2Z DSA Practice Problem",
+                    estimatedMinutes: 35,
+                    reason: "Consistent problem solving keeps algorithmic intuition sharp for placements."
+                },
+                alternatives: []
+            };
+        } catch (err) {
+            console.warn('Fallback generation error:', err);
+            return {
+                primary: {
+                    type: "dsa",
+                    taskId: null,
+                    subject: "DSA",
+                    topic: "Striver A2Z Sheet",
+                    title: "Solve Striver A2Z DSA Practice Problem",
+                    estimatedMinutes: 35,
+                    reason: "Consistent problem solving keeps algorithmic intuition sharp for placements."
+                },
+                alternatives: []
+            };
+        }
     },
 
     generateFallbackAlternatives(pending, overdue, weak, availableWindow) {
@@ -342,6 +358,7 @@ const RecommendEngine = {
         }
 
         modal.classList.add('active');
+        this.userClosed = false;
 
         // Render Loading State immediately with Cancel option
         this.renderLoadingState(modal);
@@ -352,23 +369,43 @@ const RecommendEngine = {
         }
         this.currentAbortController = new AbortController();
 
-        const context = this.buildContext();
+        let context;
+        try {
+            context = this.buildContext();
+        } catch (ctxErr) {
+            console.warn('Failed to build full StudyOS context:', ctxErr);
+            context = {
+                currentDate: (typeof DateUtils !== 'undefined' && DateUtils.todayIST) ? DateUtils.todayIST() : new Date().toISOString().split('T')[0],
+                availableTimeWindow: { durationMins: 45, label: "Current open block" }
+            };
+        }
+
+        let didTimeout = false;
+        const timeoutId = setTimeout(() => {
+            didTimeout = true;
+            if (this.currentAbortController) {
+                this.currentAbortController.abort();
+            }
+        }, 10000);
 
         try {
-            const timeoutId = setTimeout(() => {
-                if (this.currentAbortController) {
-                    this.currentAbortController.abort();
-                }
-            }, 12000);
+            const token = window.App?.getAuthToken ? window.App.getAuthToken() : (localStorage.getItem('studyos_auth_token') || '');
+            const headers = { 'Content-Type': 'application/json' };
+            if (token) {
+                headers['Authorization'] = `Bearer ${token}`;
+                headers['X-User-Id'] = token;
+            }
 
             const res = await fetch('/api/ai/study-recommendation', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers,
                 body: JSON.stringify({ context }),
                 signal: this.currentAbortController.signal
             });
 
             clearTimeout(timeoutId);
+
+            if (this.userClosed) return;
 
             if (!res.ok) {
                 throw new Error(`HTTP ${res.status}`);
@@ -376,27 +413,40 @@ const RecommendEngine = {
 
             const data = await res.json();
 
+            if (this.userClosed) return;
+
             if (data.success && data.isGemini && data.recommendation) {
                 // Render true Gemini recommendation
                 this.renderRecommendationContent(modal, data.recommendation, context.availableTimeWindow, false);
             } else {
                 // Graceful fallback labeled clearly
                 const fallbackRec = this.getDeterministicFallback();
-                const notice = data.error || "Gemini is currently unavailable. Using scheduled tasks fallback.";
+                const notice = data.error || (data.code === 'KEY_MISSING' ? "Connect your Gemini API key in Settings to enable AI recommendations." : "Gemini is currently unavailable. Using scheduled tasks fallback.");
                 this.renderRecommendationContent(modal, fallbackRec, context.availableTimeWindow, true, notice);
             }
         } catch (err) {
-            if (err.name === 'AbortError') {
-                return; // User cancelled
+            clearTimeout(timeoutId);
+            if (this.userClosed) {
+                return; // User explicitly cancelled/closed
             }
+
             console.warn('Gemini recommendation failed, loading StudyOS fallback:', err.message);
             const fallbackRec = this.getDeterministicFallback();
+            let notice = "Gemini is currently unavailable. Using scheduled tasks fallback.";
+            if (didTimeout) {
+                notice = "Gemini analysis timed out (10s). Using scheduled tasks fallback.";
+            } else if (err.message && /HTTP 401|AUTH/i.test(err.message)) {
+                notice = "Authentication required. Using scheduled tasks fallback.";
+            } else if (err.message && /HTTP 400|KEY_MISSING/i.test(err.message)) {
+                notice = "Gemini API key not configured. Using scheduled tasks fallback.";
+            }
+
             this.renderRecommendationContent(
                 modal,
                 fallbackRec,
-                context.availableTimeWindow,
+                context?.availableTimeWindow || { durationMins: 45, label: "Current open block" },
                 true,
-                "Gemini is currently unavailable. Using scheduled tasks fallback."
+                notice
             );
         }
     },
@@ -482,14 +532,20 @@ const RecommendEngine = {
         let noticeHtml = '';
         if (isFallback) {
             noticeHtml = `
-                <div class="rec-fallback-banner">
-                    <span style="font-size: 16px;">ℹ️</span>
-                    <div>
-                        <b>${fallbackMsg || "Gemini is currently unavailable."}</b>
-                        <span style="display: block; font-size: 12px; color: var(--text-secondary); margin-top: 2px;">
-                            This recommendation is generated using your scheduled StudyOS priority routines.
-                        </span>
+                <div class="rec-fallback-banner" style="display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
+                    <div style="display: flex; align-items: center; gap: 10px; flex: 1; min-width: 240px;">
+                        <span style="font-size: 16px;">ℹ️</span>
+                        <div>
+                            <b>${fallbackMsg || "Gemini is currently unavailable."}</b>
+                            <span style="display: block; font-size: 12px; color: var(--text-secondary); margin-top: 2px;">
+                                This recommendation is generated using your scheduled StudyOS priority routines.
+                            </span>
+                        </div>
                     </div>
+                    <button class="btn-secondary" style="padding: 6px 12px; font-size: 12px; cursor: pointer; border-radius: 6px; display: inline-flex; align-items: center; gap: 6px;" onclick="RecommendEngine.showRecommendationModal()">
+                        <span>🔄</span>
+                        <span>Retry Gemini</span>
+                    </button>
                 </div>
             `;
         }
@@ -596,6 +652,7 @@ const RecommendEngine = {
     },
 
     closeModal() {
+        this.userClosed = true;
         if (this.currentAbortController) {
             this.currentAbortController.abort();
         }

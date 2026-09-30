@@ -463,6 +463,182 @@ exports.handler = async function(event, context) {
     }
 
     // 3. AI Endpoints (Require User BYOK Credential)
+    if (action === 'study-recommendation') {
+        if (!userId) {
+            return {
+                statusCode: 200,
+                headers: setCors,
+                body: JSON.stringify({
+                    success: false,
+                    isGemini: false,
+                    code: 'AUTH_REQUIRED',
+                    error: 'Authentication required. Please log in.'
+                })
+            };
+        }
+
+        const userCred = await getStoredCredential(userId);
+        const userKey = userCred && userCred.encrypted ? decryptKey(userCred.encrypted) : null;
+        if (!userKey) {
+            return {
+                statusCode: 200,
+                headers: setCors,
+                body: JSON.stringify({
+                    success: false,
+                    isGemini: false,
+                    code: 'KEY_MISSING',
+                    error: 'Connect your Gemini API key in Settings to enable AI recommendations.'
+                })
+            };
+        }
+
+        try {
+            const context = body.context || {};
+            const validTaskIds = new Set();
+            (context.pendingTasks || []).forEach(t => { if (t && t.id) validTaskIds.add(String(t.id)); });
+            (context.todaySchedule || []).forEach(t => { if (t && t.id) validTaskIds.add(String(t.id)); });
+            (context.overdueTasks || []).forEach(t => { if (t && t.id) validTaskIds.add(String(t.id)); });
+
+            const SYSTEM_REC_PROMPT = `You are the StudyOS adaptive study planner.
+Your job is to recommend what the student should study RIGHT NOW using only the provided StudyOS data.
+Do not invent facts.
+Do not claim the student completed something unless the data says so.
+Do not fabricate study history.
+Prioritize:
+1. current scheduled commitments
+2. urgent/overdue tasks
+3. revision due
+4. weak areas backed by actual performance
+5. pending high-priority work
+6. available time
+7. long-term placement goals
+
+Recommend one primary action and up to three alternatives.
+Keep recommendations realistic for the available time.
+
+Respond in STRICT JSON with this exact schema:
+{
+  "primary": {
+    "type": "dsa | development | college | revision | test | interview | other",
+    "taskId": "existing-task-id-or-null",
+    "subject": "string",
+    "topic": "string",
+    "title": "string",
+    "estimatedMinutes": 35,
+    "reason": "string"
+  },
+  "alternatives": [
+    {
+      "type": "dsa | development | college | revision | test | interview | other",
+      "taskId": "existing-task-id-or-null",
+      "subject": "string",
+      "topic": "string",
+      "title": "string",
+      "estimatedMinutes": 20,
+      "reason": "string"
+    }
+  ]
+}
+
+CRITICAL RULES:
+- Never invent a taskId. If matching an existing task from context, you MUST use an exact ID provided in the context under todaySchedule, pendingTasks, or overdueTasks.
+- If there is no matching task/content ID, return null and explain in reason.
+- Never output markdown code fences if possible. Return raw JSON.`;
+
+            const userPrompt = `Here is the current authentic StudyOS data for the student:
+${JSON.stringify(context, null, 2)}
+
+Analyze this data and return the structured recommendation JSON now.`;
+
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${userKey}`;
+            const gRes = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    systemInstruction: { parts: [{ text: SYSTEM_REC_PROMPT }] },
+                    contents: [{ role: 'user', parts: [{ text: userPrompt }] }]
+                })
+            });
+
+            const gData = await gRes.json();
+            const text = gData.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
+            const cleaned = text.replace(/```json/gi, '').replace(/```/g, '').trim();
+            const parsed = JSON.parse(cleaned);
+
+            if (!parsed.primary || typeof parsed.primary !== 'object') {
+                throw new Error('Gemini response missing primary recommendation');
+            }
+
+            const primary = parsed.primary;
+            const availableMins = context.availableTimeWindow?.durationMins || 45;
+
+            if (primary.taskId && !validTaskIds.has(String(primary.taskId))) {
+                primary.taskId = null;
+            }
+
+            let estMins = parseInt(primary.estimatedMinutes, 10);
+            if (isNaN(estMins) || estMins <= 0) estMins = 30;
+            estMins = Math.max(15, Math.min(availableMins + 15, estMins));
+            primary.estimatedMinutes = estMins;
+            primary.subject = primary.subject || 'DSA';
+            primary.topic = primary.topic || 'General Focus';
+            primary.title = primary.title || `${primary.subject}: ${primary.topic}`;
+            primary.reason = primary.reason || 'Recommended based on your available study window and active curriculum goals.';
+
+            let safeAlternatives = [];
+            if (Array.isArray(parsed.alternatives)) {
+                safeAlternatives = parsed.alternatives.slice(0, 3).map(alt => {
+                    let altMins = parseInt(alt.estimatedMinutes, 10);
+                    if (isNaN(altMins) || altMins <= 0) altMins = 20;
+                    altMins = Math.max(15, Math.min(availableMins + 15, altMins));
+                    let aTaskId = alt.taskId;
+                    if (aTaskId && !validTaskIds.has(String(aTaskId))) {
+                        aTaskId = null;
+                    }
+                    return {
+                        type: alt.type || 'other',
+                        taskId: aTaskId,
+                        subject: alt.subject || 'Study',
+                        topic: alt.topic || 'General',
+                        title: alt.title || 'Alternative Study Option',
+                        estimatedMinutes: altMins,
+                        reason: alt.reason || 'Alternate option for your schedule.'
+                    };
+                });
+            }
+
+            return {
+                statusCode: 200,
+                headers: setCors,
+                body: JSON.stringify({
+                    success: true,
+                    isGemini: true,
+                    recommendation: {
+                        primary,
+                        alternatives: safeAlternatives
+                    },
+                    availableWindow: context.availableTimeWindow || null
+                })
+            };
+        } catch (e) {
+            let userMsg = 'Gemini is currently unavailable.';
+            if (/401|API_KEY_INVALID|API key not valid/i.test(e.message)) {
+                userMsg = 'Invalid or expired Gemini API key.';
+            } else if (/429|quota/i.test(e.message)) {
+                userMsg = 'Gemini rate limit or quota exceeded.';
+            }
+            return {
+                statusCode: 200,
+                headers: setCors,
+                body: JSON.stringify({
+                    success: false,
+                    isGemini: false,
+                    error: userMsg
+                })
+            };
+        }
+    }
+
     if (!userId) {
         return {
             statusCode: 401,

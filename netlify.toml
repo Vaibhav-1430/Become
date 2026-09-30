@@ -78,6 +78,16 @@
   status = 200
 
 [[redirects]]
+  from = "/api/ai/study-recommendation"
+  to = "/.netlify/functions/gemini?action=study-recommendation"
+  status = 200
+
+[[redirects]]
+  from = "/api/gemini/study-recommendation"
+  to = "/.netlify/functions/gemini?action=study-recommendation"
+  status = 200
+
+[[redirects]]
   from = "/api/judge"
   to = "/.netlify/functions/judge"
   status = 200

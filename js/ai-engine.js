@@ -56,57 +56,64 @@ class AIStudyEngine {
         const context = {
             view: currentView,
             date: todayStr,
-            summary: TaskEngine.getDaySummary(todayStr),
+            summary: TaskEngine.getDaySummary(todayStr) || {},
             devNext: devRec ? `${techLabel} → ${devRec.title || 'In Progress'}` : null
         };
 
         if (currentView === 'dsa') {
-            const stats = DSAEngine.getStats();
+            const stats = typeof DSAEngine !== 'undefined' && DSAEngine.getStats ? DSAEngine.getStats() : { solved: 0, total: 455 };
             context.module = 'Striver A2Z DSA';
             context.dsaSolved = `${stats.solved} of ${stats.total}`;
             context.currentTopic = 'Data Structures & Algorithms';
         } else if (currentView === 'development') {
-            const devState = Store.getState().development || {};
+            const devState = (Store.getState && Store.getState().development) || {};
             const tech = devState.activeTech || 'javascript';
             context.module = 'Full-Stack Development';
-            context.activeTech = tech.toUpperCase();
+            context.activeTech = String(tech).toUpperCase();
             context.currentTopic = `Full-Stack Track: ${tech}`;
         } else if (currentView === 'placement') {
             context.module = 'Placement Command Center';
             context.currentTopic = 'Core CS, System Design & Aptitude';
+        } else {
+            context.module = 'Adaptive AI Engine';
+            context.currentTopic = 'Striver DSA & Full-Stack Development';
         }
 
         // Authentic Workout & Lifestyle Context for AI
         if (typeof Store !== 'undefined' && Store.getGymState) {
-            const gym = Store.getGymState();
-            const todayWorkout = Store.getTodayWorkoutTemplate(todayStr);
-            const recentSessions = (gym.sessions || []).slice(0, 5).map(s => ({
-                date: s.date,
-                routine: s.routineName,
-                volume: s.totalVolumeKg,
-                exercises: (s.exercises || []).map(e => ({
-                    name: e.name,
-                    sets: (e.sets || []).map(st => `${st.weightKg}kg x ${st.reps}`)
-                }))
-            }));
-            const prs = Store.getExercisePRs();
+            try {
+                const gym = Store.getGymState() || {};
+                const todayWorkout = (Store.getTodayWorkoutTemplate && Store.getTodayWorkoutTemplate(todayStr)) || {};
+                const recentSessions = (gym.sessions || []).slice(0, 5).map(s => ({
+                    date: s?.date || todayStr,
+                    routine: s?.routineName || 'Workout',
+                    volume: s?.totalVolumeKg || 0,
+                    exercises: (s?.exercises || []).map(e => ({
+                        name: e?.name || 'Exercise',
+                        sets: (e?.sets || []).map(st => `${st?.weightKg || 0}kg x ${st?.reps || 0}`)
+                    }))
+                }));
+                const prs = (Store.getExercisePRs && Store.getExercisePRs()) || { exercises: [] };
 
-            context.workoutData = {
-                gymConfigured: gym.isConfigured,
-                todayWorkout: todayWorkout.template ? {
-                    day: todayWorkout.dayName,
-                    isRest: todayWorkout.template.isRestDay,
-                    routine: todayWorkout.template.routineName,
-                    exercises: (todayWorkout.template.exercises || []).map(e => e.name)
-                } : null,
-                recentSessions,
-                personalRecords: (prs.exercises || []).map(p => ({
-                    exercise: p.name,
-                    heaviest: `${p.heaviest.weightKg}kg x ${p.heaviest.reps} (${p.heaviest.date || '—'})`,
-                    bestReps: `${p.bestReps.reps} reps @ ${p.bestReps.weightKg}kg`,
-                    est1RM: `${p.best1RM.oneRM}kg`
-                }))
-            };
+                context.workoutData = {
+                    gymConfigured: !!gym.isConfigured,
+                    todayWorkout: todayWorkout.template ? {
+                        day: todayWorkout.dayName,
+                        isRest: !!todayWorkout.template.isRestDay,
+                        routine: todayWorkout.template.routineName || 'Rest',
+                        exercises: (todayWorkout.template.exercises || []).map(e => e?.name || e)
+                    } : null,
+                    recentSessions,
+                    personalRecords: (prs.exercises || []).map(p => ({
+                        exercise: p?.name || 'Exercise',
+                        heaviest: p?.heaviest ? `${p.heaviest.weightKg || 0}kg x ${p.heaviest.reps || 0} (${p.heaviest.date || '—'})` : '—',
+                        bestReps: p?.bestReps ? `${p.bestReps.reps || 0} reps @ ${p.bestReps.weightKg || 0}kg` : '—',
+                        est1RM: p?.best1RM ? `${p.best1RM.oneRM || 0}kg` : '—'
+                    }))
+                };
+            } catch (gymErr) {
+                console.warn('[AIEngine] Gym context error:', gymErr);
+            }
         }
 
         return context;
@@ -116,11 +123,11 @@ class AIStudyEngine {
     // Part 3 & 4: Learner Profile & Analytics Aggregation
     // ----------------------------------------------------
     buildLearnerProfile() {
-        const state = Store.getState();
+        const state = (Store && Store.getState) ? Store.getState() : {};
         const days = state.days || {};
         const dsaState = state.dsa || {};
         const devState = state.development || {};
-        const weeklyTests = state.placementHub?.weeklyTests || [];
+        const weeklyTests = (state.placementHub && Array.isArray(state.placementHub.weeklyTests)) ? state.placementHub.weeklyTests : [];
 
         let totalSessions = 0;
         let totalCompletedMinutes = 0;
@@ -132,10 +139,12 @@ class AIStudyEngine {
         const recentDays = Object.keys(days).sort().slice(-14);
         recentDays.forEach(dKey => {
             const day = days[dKey];
+            if (!day) return;
             (day.tasks || []).forEach(t => {
-                if (t.isStudy) {
+                if (t && t.isStudy) {
                     totalSessions++;
-                    const startH = parseInt((t.startTime || '00:00').split(':')[0], 10);
+                    const sTime = typeof t.startTime === 'string' ? t.startTime : '00:00';
+                    const startH = parseInt(sTime.split(':')[0], 10) || 0;
                     if (startH >= 5 && startH < 11) timeSlotCounts.morning++;
                     else if (startH >= 11 && startH < 17) timeSlotCounts.midday++;
                     else if (startH >= 17 && startH < 22) timeSlotCounts.evening++;
@@ -143,7 +152,6 @@ class AIStudyEngine {
 
                     if (t.status === APP_CONFIG.TASK_STATUS.COMPLETED) {
                         completedTasksCount++;
-                        // estimate duration from start/end
                         const dur = this.calculateDurationMinutes(t.startTime, t.endTime) || 60;
                         totalCompletedMinutes += dur;
                     } else if (t.status === APP_CONFIG.TASK_STATUS.INTERRUPTED || t.rescheduledTo) {
@@ -154,15 +162,17 @@ class AIStudyEngine {
         });
 
         // Analyze real timed Study Sessions from StudySessionEngine
-        const realSessions = Store.getStudySessions();
+        const realSessions = (Store && Store.getStudySessions) ? Store.getStudySessions() : [];
         let realSessionMinutes = 0;
         let longestSessionMinutes = 0;
-        realSessions.forEach(s => {
+        (Array.isArray(realSessions) ? realSessions : []).forEach(s => {
+            if (!s) return;
             const activeM = Math.round((s.activeSeconds || 0) / 60);
             realSessionMinutes += activeM;
             if (activeM > longestSessionMinutes) longestSessionMinutes = activeM;
-            if (s.startTime) {
-                const startH = parseInt(s.startTime.split(':')[0], 10);
+            if (s.startTime && typeof s.startTime === 'string') {
+                const parts = s.startTime.replace(/[^0-9:]/g, '').split(':');
+                const startH = parseInt(parts[0], 10) || 0;
                 if (startH >= 5 && startH < 11) timeSlotCounts.morning++;
                 else if (startH >= 11 && startH < 17) timeSlotCounts.midday++;
                 else if (startH >= 17 && startH < 22) timeSlotCounts.evening++;
@@ -171,11 +181,11 @@ class AIStudyEngine {
         });
 
         const totalActiveMinutes = totalCompletedMinutes + realSessionMinutes;
-        const totalCompletedEvents = completedTasksCount + realSessions.length;
-        const hasSufficientData = (totalSessions + realSessions.length) >= 3;
+        const totalCompletedEvents = completedTasksCount + (Array.isArray(realSessions) ? realSessions.length : 0);
+        const hasSufficientData = (totalSessions + (Array.isArray(realSessions) ? realSessions.length : 0)) >= 3;
         const avgSessionDuration = totalCompletedEvents > 0
             ? Math.round(totalActiveMinutes / totalCompletedEvents)
-            : (realSessions.length > 0 ? Math.round(realSessionMinutes / realSessions.length) : 0);
+            : ((Array.isArray(realSessions) && realSessions.length > 0) ? Math.round(realSessionMinutes / realSessions.length) : 0);
 
         // Preferred study windows
         const preferredWindows = [
@@ -187,24 +197,31 @@ class AIStudyEngine {
         const weakSet = new Set();
         const strongSet = new Set();
         weeklyTests.forEach(test => {
-            (test.weakTopics || []).forEach(w => weakSet.add(w.topic));
-            (test.strongTopics || []).forEach(s => strongSet.add(s.topic));
+            if (!test) return;
+            (test.weakTopics || []).forEach(w => {
+                const tName = typeof w === 'string' ? w : (w && w.topic ? w.topic : null);
+                if (tName) weakSet.add(tName);
+            });
+            (test.strongTopics || []).forEach(s => {
+                const tName = typeof s === 'string' ? s : (s && s.topic ? s.topic : null);
+                if (tName) strongSet.add(tName);
+            });
         });
 
         // Subject performance estimates
-        const dsaStats = DSAEngine.getStats();
-        const dsaPct = Math.round((dsaStats.solved / (dsaStats.total || 1)) * 100);
+        const dsaStats = (typeof DSAEngine !== 'undefined' && DSAEngine.getStats) ? DSAEngine.getStats() : { solved: 0, total: 455 };
+        const dsaPct = Math.round(((dsaStats?.solved || 0) / (dsaStats?.total || 1)) * 100);
 
         const devTopicsCount = Object.keys(devState.topics || {}).length;
-        const devSolvedCount = Object.values(devState.topics || {}).filter(t => t.status === 'SOLVED').length;
+        const devSolvedCount = Object.values(devState.topics || {}).filter(t => t && t.status === 'SOLVED').length;
         const devPct = devTopicsCount > 0 ? Math.round((devSolvedCount / devTopicsCount) * 100) : 0;
 
         const latestTest = weeklyTests.length > 0 ? weeklyTests[weeklyTests.length - 1] : null;
 
         const profile = {
             hasSufficientData,
-            totalSessionsTracked: totalSessions + realSessions.length,
-            realStudySessionsCount: realSessions.length,
+            totalSessionsTracked: totalSessions + (Array.isArray(realSessions) ? realSessions.length : 0),
+            realStudySessionsCount: Array.isArray(realSessions) ? realSessions.length : 0,
             totalFocusMinutes: realSessionMinutes,
             longestSessionMinutes,
             preferredStudyWindows: preferredWindows,
@@ -212,7 +229,7 @@ class AIStudyEngine {
             completionRate: totalSessions > 0 ? Math.round((completedTasksCount / totalSessions) * 100) : 0,
             postponedTasksCount,
             subjectPerformance: {
-                dsa: { solved: dsaStats.solved, total: dsaStats.total, percentage: dsaPct },
+                dsa: { solved: dsaStats?.solved || 0, total: dsaStats?.total || 455, percentage: dsaPct },
                 development: { solved: devSolvedCount, total: devTopicsCount || 30, percentage: devPct },
                 coreCs: { latestTestScore: latestTest ? latestTest.score : 'No tests taken yet' }
             },
@@ -224,7 +241,7 @@ class AIStudyEngine {
                 date: latestTest.date
             } : null,
             studyConsistency: {
-                currentStreak: TaskEngine.calculateStreak(),
+                currentStreak: (typeof TaskEngine !== 'undefined' && TaskEngine.calculateStreak) ? TaskEngine.calculateStreak() : 0,
                 totalDaysTracked: recentDays.length
             },
             currentGoals: [
@@ -234,14 +251,17 @@ class AIStudyEngine {
             ]
         };
 
-        Store.setAiProfile(profile);
+        if (Store && Store.setAiProfile) {
+            Store.setAiProfile(profile);
+        }
         return profile;
     }
 
     calculateDurationMinutes(start, end) {
-        if (!start || !end) return 60;
+        if (typeof start !== 'string' || typeof end !== 'string' || !start.includes(':') || !end.includes(':')) return 60;
         const [sh, sm] = start.split(':').map(Number);
         const [eh, em] = end.split(':').map(Number);
+        if (isNaN(sh) || isNaN(sm) || isNaN(eh) || isNaN(em)) return 60;
         let diff = (eh * 60 + em) - (sh * 60 + sm);
         if (diff < 0) diff += 24 * 60; // crossed midnight
         return diff > 0 ? diff : 60;
@@ -327,7 +347,8 @@ class AIStudyEngine {
                 startTime: plan.dsaPlan.timeSlot?.split('–')[0]?.trim() || '06:45',
                 endTime: plan.dsaPlan.timeSlot?.split('–')[1]?.trim() || '08:15',
                 isStudy: true,
-                notes: 'Generated by AI Daily Planner'
+                notes: 'Generated by AI Daily Planner',
+                isAiGenerated: true
             });
         }
 
@@ -339,7 +360,8 @@ class AIStudyEngine {
                 startTime: plan.coreCsPlan.timeSlot?.split('–')[0]?.trim() || '19:30',
                 endTime: plan.coreCsPlan.timeSlot?.split('–')[1]?.trim() || '20:30',
                 isStudy: true,
-                notes: 'Generated by AI Daily Planner'
+                notes: 'Generated by AI Daily Planner',
+                isAiGenerated: true
             });
         }
 
@@ -351,7 +373,8 @@ class AIStudyEngine {
                 startTime: plan.devPlan.timeSlot?.split('–')[0]?.trim() || '23:00',
                 endTime: plan.devPlan.timeSlot?.split('–')[1]?.trim() || '00:30',
                 isStudy: true,
-                notes: 'Generated by AI Daily Planner'
+                notes: 'Generated by AI Daily Planner',
+                isAiGenerated: true
             });
         }
 
@@ -757,9 +780,17 @@ class AIStudyEngine {
     // Full AI Engine View (#view-ai-engine)
     // ----------------------------------------------------
     hasStudyData() {
-        const s = (typeof Store !== 'undefined' && Store.memoryState) ? Store.memoryState : {};
-        const hasDsa = Object.values(s.dsa || {}).some(x => x && x.status && x.status !== 'NOT_STARTED');
-        const hasDev = s.development && Object.values(s.development.tasks || {}).some(x => x && x.status && x.status !== 'NOT_STARTED');
+        const s = (typeof Store !== 'undefined' && Store.memoryState) ? Store.memoryState : ((typeof Store !== 'undefined' && Store.getState) ? Store.getState() : {});
+        const hasDsa = Object.values(s.dsa || {}).some(x => {
+            if (!x) return false;
+            if (typeof x === 'string') return x !== 'NOT_STARTED';
+            return x.status && x.status !== 'NOT_STARTED';
+        });
+        const hasDev = s.development && Object.values(s.development.tasks || {}).some(x => {
+            if (!x) return false;
+            if (typeof x === 'string') return x !== 'NOT_STARTED';
+            return x.status && x.status !== 'NOT_STARTED';
+        });
         const hasDays = Object.values(s.days || {}).some(d => d && Array.isArray(d.tasks) && d.tasks.length > 0);
         const hasMistakes = Array.isArray(s.mistakes) && s.mistakes.length > 0;
         const hasSessions = Array.isArray(s.studySessions) && s.studySessions.length > 0;
@@ -768,18 +799,34 @@ class AIStudyEngine {
 
     getRecommendationSync() {
         if (this.currentRecommendation) return this.currentRecommendation;
-        const context = typeof RecommendEngine !== 'undefined' ? RecommendEngine.buildContext() : this.getCurrentContext();
-        const fallback = typeof RecommendEngine !== 'undefined' ? RecommendEngine.getDeterministicFallback() : {
-            primary: {
-                type: 'dsa',
-                subject: 'DSA',
-                topic: 'Binary Search & Arrays',
-                title: 'Striver A2Z DSA Practice',
-                estimatedMinutes: 45,
-                reason: 'Your pending DSA work is high priority and you have approximately 45 minutes available.'
-            },
-            alternatives: []
-        };
+        let context = null;
+        try {
+            context = typeof RecommendEngine !== 'undefined' && RecommendEngine.buildContext ? RecommendEngine.buildContext() : this.getCurrentContext();
+        } catch (e) {
+            context = this.getCurrentContext();
+        }
+
+        let fallback = null;
+        try {
+            fallback = typeof RecommendEngine !== 'undefined' && RecommendEngine.getDeterministicFallback ? RecommendEngine.getDeterministicFallback() : null;
+        } catch (e) {
+            fallback = null;
+        }
+
+        if (!fallback || !fallback.primary) {
+            fallback = {
+                primary: {
+                    type: 'dsa',
+                    subject: 'DSA',
+                    topic: 'Binary Search & Arrays',
+                    title: 'Striver A2Z DSA Practice',
+                    estimatedMinutes: 45,
+                    reason: 'Your pending DSA work is high priority and you have approximately 45 minutes available.'
+                },
+                alternatives: []
+            };
+        }
+
         this.currentRecommendation = {
             ...fallback,
             isGemini: false,
@@ -792,32 +839,50 @@ class AIStudyEngine {
         const btn = document.getElementById('btnRefreshRec');
         if (btn) btn.textContent = 'Analyzing...';
 
-        const context = typeof RecommendEngine !== 'undefined' ? RecommendEngine.buildContext() : this.getCurrentContext();
+        let context;
         try {
+            context = typeof RecommendEngine !== 'undefined' && RecommendEngine.buildContext ? RecommendEngine.buildContext() : this.getCurrentContext();
+        } catch (e) {
+            context = this.getCurrentContext();
+        }
+
+        try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 8000);
+
             const res = await fetch('/api/ai/study-recommendation', {
                 method: 'POST',
                 headers: this.getAuthHeaders(),
-                body: JSON.stringify({ context })
+                body: JSON.stringify({ context }),
+                signal: controller.signal
             });
+            clearTimeout(timeoutId);
 
             if (res.ok) {
-                const data = await res.json();
-                if (data.success && data.recommendation && data.recommendation.primary) {
-                    this.currentRecommendation = {
-                        ...data.recommendation,
-                        isGemini: true,
-                        context
-                    };
-                    showToast('✨ Fresh Gemini AI recommendation generated!', 'success');
-                    this.render();
-                    return;
+                const contentType = res.headers.get('content-type') || '';
+                if (contentType.includes('application/json')) {
+                    const data = await res.json();
+                    if (data.success && data.recommendation && data.recommendation.primary) {
+                        this.currentRecommendation = {
+                            ...data.recommendation,
+                            isGemini: true,
+                            context
+                        };
+                        showToast('✨ Fresh Gemini AI recommendation generated!', 'success');
+                        this.render();
+                        return;
+                    }
                 }
             }
         } catch (e) {
-            console.warn('API recommendation fallback:', e);
+            console.warn('[AIEngine] Recommendation fetch error, using fallback:', e.message);
         }
 
-        const fallback = typeof RecommendEngine !== 'undefined' ? RecommendEngine.getDeterministicFallback() : null;
+        let fallback = null;
+        try {
+            fallback = typeof RecommendEngine !== 'undefined' && RecommendEngine.getDeterministicFallback ? RecommendEngine.getDeterministicFallback() : null;
+        } catch (e) {}
+
         if (fallback) {
             this.currentRecommendation = {
                 ...fallback,
@@ -875,59 +940,88 @@ class AIStudyEngine {
         const container = document.getElementById('view-ai-engine');
         if (!container) return;
 
-        const profile = this.buildLearnerProfile();
-        const context = this.getCurrentContext();
+        try {
+            const profile = this.buildLearnerProfile();
+            const context = this.getCurrentContext();
 
-        container.innerHTML = `
-            <!-- Top Hero Banner -->
-            <div class="hero-banner dev-hero" style="margin-bottom: 20px;">
-                <div class="hero-content">
-                    <div class="dev-hero-eyebrow">🤖 FORGE ADAPTIVE AI</div>
-                    <h3>Adaptive AI Study Engine & Tutor</h3>
-                    <p>Your personalized study decision engine. Powered by Google Gemini and authentic FORGE learning analytics to optimize study blocks, eliminate decision fatigue, and enforce mastery.</p>
-                </div>
-                <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 8px;">
-                    <div class="ai-context-chip">
-                        <span>Active Context:</span>
-                        <b>${context.currentTopic || 'General FORGE'}</b>
+            container.innerHTML = `
+                <!-- Top Hero Banner -->
+                <div class="hero-banner dev-hero" style="margin-bottom: 20px;">
+                    <div class="hero-content">
+                        <div class="dev-hero-eyebrow">🤖 FORGE ADAPTIVE AI</div>
+                        <h3>Adaptive AI Study Engine & Tutor</h3>
+                        <p>Your personalized study decision engine. Powered by Google Gemini and authentic FORGE learning analytics to optimize study blocks, eliminate decision fatigue, and enforce mastery.</p>
                     </div>
-                    <button type="button" class="btn-ghost-sm" onclick="App.openSettingsModal('ai')" style="position: static; font-size: 11.5px; padding: 4px 10px; border-radius: var(--radius-full); background: rgba(0,240,255,0.08); border: 1px solid rgba(0,240,255,0.25); color: var(--cyan); cursor: pointer; display: inline-flex; align-items: center; gap: 4px;">
-                        <span>⚙️</span>
-                        <span>Configure / Test Gemini Key</span>
+                    <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 8px;">
+                        <div class="ai-context-chip">
+                            <span>Active Context:</span>
+                            <b>${context.currentTopic || 'General FORGE'}</b>
+                        </div>
+                        <button type="button" class="btn-ghost-sm" onclick="App.openSettingsModal('ai')" style="position: static; font-size: 11.5px; padding: 4px 10px; border-radius: var(--radius-full); background: rgba(0,240,255,0.08); border: 1px solid rgba(0,240,255,0.25); color: var(--cyan); cursor: pointer; display: inline-flex; align-items: center; gap: 4px;">
+                            <span>⚙️</span>
+                            <span>Configure / Test Gemini Key</span>
+                        </button>
+                        <div style="font-size: 11px; color: var(--text-muted);">
+                            Server-Side Security · Zero Key Leakage
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tab Navigation -->
+                <div class="ai-tab-bar">
+                    <button class="ai-tab-btn ${this.activeTab === 'decision' ? 'active' : ''}" onclick="AIEngine.switchTab('decision')">
+                        🎯 Decision Engine & Tutor
                     </button>
-                    <div style="font-size: 11px; color: var(--text-muted);">
-                        Server-Side Security · Zero Key Leakage
+                    <button class="ai-tab-btn ${this.activeTab === 'plan' ? 'active' : ''}" onclick="AIEngine.switchTab('plan')">
+                        📋 AI Daily Plan
+                    </button>
+                    <button class="ai-tab-btn ${this.activeTab === 'profile' ? 'active' : ''}" onclick="AIEngine.switchTab('profile')">
+                        📊 Learner Profile
+                    </button>
+                    <button class="ai-tab-btn ${this.activeTab === 'insights' ? 'active' : ''}" onclick="AIEngine.switchTab('insights')">
+                        💡 AI Study Insights
+                    </button>
+                    <button class="ai-tab-btn ${this.activeTab === 'activity' ? 'active' : ''}" onclick="AIEngine.switchTab('activity')">
+                        📜 AI Activity History
+                    </button>
+                </div>
+
+                <!-- Tab Contents -->
+                <div class="ai-tab-content" id="aiTabContent">
+                    ${this.renderTabContent()}
+                </div>
+            `;
+
+            if (this.activeTab === 'decision' || this.activeTab === 'chat') {
+                this.bindChatEvents();
+            }
+        } catch (err) {
+            console.error('[AIEngine] Render failed:', err);
+            const errStr = (window.App && window.App.escapeHtml) ? window.App.escapeHtml(err.message || 'Telemetry evaluation error') : String(err.message || '');
+            container.innerHTML = `
+                <div class="hero-banner dev-hero" style="margin-bottom: 20px;">
+                    <div class="hero-content">
+                        <div class="dev-hero-eyebrow">🤖 FORGE ADAPTIVE AI</div>
+                        <h3>Adaptive AI Study Engine & Tutor</h3>
+                        <p>Your personalized study decision engine powered by Google Gemini and authentic FORGE learning analytics.</p>
                     </div>
                 </div>
-            </div>
-
-            <!-- Tab Navigation -->
-            <div class="ai-tab-bar">
-                <button class="ai-tab-btn ${this.activeTab === 'decision' ? 'active' : ''}" onclick="AIEngine.switchTab('decision')">
-                    🎯 Decision Engine & Tutor
-                </button>
-                <button class="ai-tab-btn ${this.activeTab === 'plan' ? 'active' : ''}" onclick="AIEngine.switchTab('plan')">
-                    📋 AI Daily Plan
-                </button>
-                <button class="ai-tab-btn ${this.activeTab === 'profile' ? 'active' : ''}" onclick="AIEngine.switchTab('profile')">
-                    📊 Learner Profile
-                </button>
-                <button class="ai-tab-btn ${this.activeTab === 'insights' ? 'active' : ''}" onclick="AIEngine.switchTab('insights')">
-                    💡 AI Study Insights
-                </button>
-                <button class="ai-tab-btn ${this.activeTab === 'activity' ? 'active' : ''}" onclick="AIEngine.switchTab('activity')">
-                    📜 AI Activity History
-                </button>
-            </div>
-
-            <!-- Tab Contents -->
-            <div class="ai-tab-content" id="aiTabContent">
-                ${this.renderTabContent()}
-            </div>
-        `;
-
-        if (this.activeTab === 'decision' || this.activeTab === 'chat') {
-            this.bindChatEvents();
+                <div class="ai-rec-card" style="text-align: center; padding: 40px 24px; margin-top: 10px;">
+                    <div style="font-size: 40px; margin-bottom: 12px;">⚠️</div>
+                    <h3 style="color: #fff; margin-bottom: 8px;">AI Study Engine encountered a display issue</h3>
+                    <p style="color: var(--text-secondary); max-width: 520px; margin: 0 auto 20px auto; font-size: 13.5px; line-height: 1.5;">
+                        The engine was unable to render the view with current telemetry (${errStr}). Click Retry to reload authentic StudyOS learning telemetry.
+                    </p>
+                    <div style="display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;">
+                        <button type="button" class="btn-primary" onclick="AIEngine.currentRecommendation = null; AIEngine.render()">
+                            <span>🔄</span> <span>Retry AI Engine</span>
+                        </button>
+                        <button type="button" class="action-btn-ghost" onclick="App.switchView('today')">
+                            <span>🏠</span> <span>Return to Today's Missions</span>
+                        </button>
+                    </div>
+                </div>
+            `;
         }
     }
 
@@ -965,8 +1059,8 @@ class AIStudyEngine {
             `;
         }
 
-        const rec = this.getRecommendationSync();
-        const primary = rec?.primary || {
+        const rec = this.getRecommendationSync() || {};
+        const primary = rec.primary || {
             subject: 'DSA',
             topic: 'Binary Search',
             title: 'Striver DSA — Binary Search',
@@ -974,8 +1068,9 @@ class AIStudyEngine {
             reason: 'Your pending DSA work is high priority and you have approximately 45 minutes available.'
         };
 
+        const esc = (s) => (window.App && window.App.escapeHtml) ? window.App.escapeHtml(s || '') : String(s || '');
         const priority = primary.priority || (primary.estimatedMinutes > 40 ? 'High' : 'Medium');
-        const priorityClass = priority.toLowerCase() === 'high' ? 'high' : 'medium';
+        const priorityClass = String(priority).toLowerCase() === 'high' ? 'high' : 'medium';
         const windowDuration = rec?.context?.availableTimeWindow?.durationMins || 45;
 
         return `
@@ -1010,8 +1105,8 @@ class AIStudyEngine {
                         <div class="ai-rec-header-row">
                             <div class="ai-rec-badge-group">
                                 <span class="ai-badge-recommend">Recommended Now</span>
-                                <span class="ai-badge-source">${App.escapeHtml(primary.subject || 'DSA')}</span>
-                                <span class="ai-badge-priority ${priorityClass}">Priority: ${App.escapeHtml(priority)}</span>
+                                <span class="ai-badge-source">${esc(primary.subject || 'DSA')}</span>
+                                <span class="ai-badge-priority ${priorityClass}">Priority: ${esc(priority)}</span>
                                 ${rec.isGemini ? `<span class="sync-status-badge badge-synced">✨ Gemini AI Reasoning</span>` : ''}
                             </div>
                             <div style="font-size: 12px; color: var(--text-muted);">
@@ -1020,20 +1115,20 @@ class AIStudyEngine {
                         </div>
 
                         <div class="ai-rec-topic-title">
-                            ${App.escapeHtml(primary.subject || 'DSA')} — ${App.escapeHtml(primary.topic || primary.title)}
+                            ${esc(primary.subject || 'DSA')} — ${esc(primary.topic || primary.title)}
                         </div>
 
                         <div class="ai-rec-why-box">
                             <div class="ai-rec-why-label">Why:</div>
-                            <div class="ai-rec-why-text">"${App.escapeHtml(primary.reason)}"</div>
+                            <div class="ai-rec-why-text">"${esc(primary.reason)}"</div>
                         </div>
 
                         <!-- Expandable Deep Dive Context -->
                         <div id="aiRecDeepReasonBox" style="display: none; background: rgba(0,0,0,0.4); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 12px 16px; margin-bottom: 16px; font-size: 12px; color: var(--text-secondary); line-height: 1.6;">
                             <div style="font-weight: 700; color: #fff; margin-bottom: 6px;">Evaluation Factors:</div>
-                            <div>• Target Subject: <b>${App.escapeHtml(primary.subject || 'DSA')}</b></div>
+                            <div>• Target Subject: <b>${esc(primary.subject || 'DSA')}</b></div>
                             <div>• Estimated Duration: <b>${primary.estimatedMinutes || 45} minutes</b></div>
-                            <div>• Schedule Window: <b>${App.escapeHtml(rec.context?.availableTimeWindow?.label || 'Current focus block')}</b></div>
+                            <div>• Schedule Window: <b>${esc(rec.context?.availableTimeWindow?.label || 'Current focus block')}</b></div>
                             <div>• Revision Status: <b>${rec.context?.revisionDue?.dueMistakesCount || 0} unresolved mistakes</b></div>
                             <div>• Current Streak: <b>${rec.context?.currentStudyStreak || 0} days</b></div>
                         </div>
@@ -1045,11 +1140,11 @@ class AIStudyEngine {
                             </div>
                             <div class="ai-rec-meta-item">
                                 <span>⚡ Priority:</span>
-                                <b>${App.escapeHtml(priority)}</b>
+                                <b>${esc(priority)}</b>
                             </div>
                             <div class="ai-rec-meta-item">
                                 <span>📂 Source:</span>
-                                <b>${App.escapeHtml(primary.subject || 'Striver DSA')}</b>
+                                <b>${esc(primary.subject || 'Striver DSA')}</b>
                             </div>
                         </div>
 
