@@ -1,726 +1,973 @@
 /**
- * FORGE — GATE 2027 PYQ-First Study Planner & Adaptive Priority Engine
+ * FORGE — GATE 2027 SYLLABUS-FIRST STUDY PLANNER & CALENDAR ENGINE
  *
- * Fully integrated into FORGE architecture:
- * - Reuses canonical Store, SyncEngine, MistakeBank, StudySessionEngine, Calendar, Today Command.
- * - Multi-signal Priority Engine based on authentic historical GATE trends + user performance.
- * - PYQ-first execution layer with full attempt tracking, timers, and mistake categorization.
+ * Core Principles:
+ * 1. SYLLABUS-FIRST: Source of truth is official GATE 2027 CSE syllabus (11 Subjects, 81 Topics).
+ * 2. TOPIC-FIRST: Focus on concept mastery, structured notes, and handbook PYQ problem-solving.
+ * 3. CALENDAR-FIRST: Dedicated 123-day schedule (01 Oct 2026 – 31 Jan 2027) with ZERO empty dates.
+ * 4. COMPLETION GUARANTEE: Every syllabus topic is planned; PYQs are an action checklist item.
  */
 
 const GatePlannerEngine = {
-    activeSession: null,
-    activeHistoricalYear: 'all', // 'all' | 2021 | 2022 | ... | 2026
-    timerInterval: null,
-    sessionSeconds: 0,
-    questionSeconds: 0,
+    activeMonth: '2026-10', // '2026-10' | '2026-11' | '2026-12' | '2027-01'
+    expandedSubjects: new Set(['algo']), // Algorithms expanded by default
+    activeModalDate: null,
+    activeModalTopicId: null,
 
     init() {
-        // Ensure state exists in Store
         if (typeof Store !== 'undefined' && Store.getGateState) {
             Store.getGateState();
         }
     },
 
     // =========================================================================
-    // 1. PRIORITY ENGINE (Section 3 & Section 12)
+    // 1. DATA ACCESS & SYLLABUS RESOLUTION
+    // =========================================================================
+
+    getSyllabusData() {
+        if (typeof window !== 'undefined' && window.GATE_DATA_2027) {
+            return window.GATE_DATA_2027;
+        }
+        if (typeof global !== 'undefined' && global.GATE_DATA_2027) {
+            return global.GATE_DATA_2027;
+        }
+        try {
+            return require('../data/gate-data.js');
+        } catch (e) {
+            return { subjects: [], topics: [], calendar: [] };
+        }
+    },
+
+    getAllSubjects() {
+        const data = this.getSyllabusData();
+        return Array.isArray(data.subjects) ? data.subjects : (data.GATE_SYLLABUS || []);
+    },
+
+    getAllTopics() {
+        const data = this.getSyllabusData();
+        if (Array.isArray(data.topics) && data.topics.length > 0) return data.topics;
+        const subjects = this.getAllSubjects();
+        const list = [];
+        subjects.forEach(s => {
+            (s.topics || []).forEach(t => {
+                list.push({ ...t, subjectId: s.id, subjectName: s.name });
+            });
+        });
+        return list;
+    },
+
+    getTopicById(topicId) {
+        if (!topicId) return null;
+        const all = this.getAllTopics();
+        return all.find(t => t.id === topicId || t.topicId === topicId) || null;
+    },
+
+    getSubjectById(subjectId) {
+        if (!subjectId) return null;
+        const subjects = this.getAllSubjects();
+        return subjects.find(s => s.id === subjectId) || null;
+    },
+
+    // =========================================================================
+    // 2. SUBJECTS LIST & TOPIC PRIORITIES
     // =========================================================================
 
     /**
-     * Get current configurable weights for priority calculation
-     */
-    getWeights() {
-        if (typeof Store !== 'undefined' && Store.getState) {
-            const savedWeights = Store.getState()?.gate?.settings?.weights;
-            if (savedWeights) return savedWeights;
-        }
-        return (typeof GATE_CONFIG !== 'undefined' && GATE_CONFIG.PRIORITY_WEIGHTS)
-            ? GATE_CONFIG.PRIORITY_WEIGHTS
-            : {
-                historicalFrequency: 0.25,
-                recentFrequency: 0.20,
-                recurrence: 0.15,
-                userWeakness: 0.20,
-                revisionDue: 0.10,
-                pyqCoverageGap: 0.10
-            };
-    },
-
-    /**
-     * Calculate subject-level priority and performance metrics
+     * Calculates subject progress and sorts subjects strictly HIGH -> LOW by historical weightage
      */
     calculateSubjectPriorities() {
-        const syllabus = (typeof GATE_SYLLABUS !== 'undefined') ? GATE_SYLLABUS : [];
-        const attempts = (typeof Store !== 'undefined' && Store.getGatePyqAttempts) ? Store.getGatePyqAttempts() : [];
-        const pyqBank = this.getAllPyqs();
-        const weights = this.getWeights();
+        const subjects = this.getAllSubjects();
+        const gate = (typeof Store !== 'undefined' && Store.getGateState) ? Store.getGateState() : {};
+        const topicStatuses = gate.topicStatuses || {};
 
-        const subjects = syllabus.map(subj => {
-            const subjPyqs = pyqBank.filter(q => q.subjectId === subj.id);
-            const subjAttempts = attempts.filter(a => a.subjectId === subj.id);
-            const attemptedCount = subjAttempts.length;
-            const correctCount = subjAttempts.filter(a => a.isCorrect).length;
-            const accuracy = attemptedCount > 0 ? Math.round((correctCount / attemptedCount) * 100) : 0;
-            const remainingPyqs = Math.max(0, subjPyqs.length - attemptedCount);
+        const results = subjects.map(subj => {
+            const topics = subj.topics || [];
+            const topicsCount = topics.length;
+            let completedCount = 0;
+            let inProgressCount = 0;
 
-            // Historical frequency score (0-100): normalized against 15 max marks
-            const historicalFrequency = Math.min(100, Math.round((subj.historicalWeight / 15.0) * 100));
-
-            // Recent frequency score (2024-2026): average marks in last 3 years
-            const recentPapers = (typeof GATE_HISTORICAL_WEIGHTAGE !== 'undefined')
-                ? GATE_HISTORICAL_WEIGHTAGE.filter(p => p.year >= 2024)
-                : [];
-            let recentMarksSum = 0;
-            recentPapers.forEach(p => {
-                recentMarksSum += (p.marks?.[subj.id] || 0);
+            topics.forEach(t => {
+                const st = topicStatuses[t.id]?.status || 'NOT_STARTED';
+                if (st === 'COMPLETED') completedCount++;
+                else if (st === 'IN_PROGRESS' || st === 'STUDY_COMPLETE' || st === 'PYQ_PENDING') inProgressCount++;
             });
-            const recentAvgMarks = recentPapers.length > 0 ? (recentMarksSum / recentPapers.length) : subj.historicalWeight;
-            const recentFrequency = Math.min(100, Math.round((recentAvgMarks / 15.0) * 100));
 
-            // Recurrence score across all papers
-            const allPapers = (typeof GATE_HISTORICAL_WEIGHTAGE !== 'undefined') ? GATE_HISTORICAL_WEIGHTAGE : [];
-            let appearedSessions = 0;
-            allPapers.forEach(p => {
-                if ((p.marks?.[subj.id] || 0) > 0) appearedSessions++;
-            });
-            const recurrence = allPapers.length > 0 ? Math.round((appearedSessions / allPapers.length) * 100) : 80;
-
-            // User weakness score
-            let userWeakness = 50; // default baseline for untested subject
-            if (attemptedCount > 0) {
-                userWeakness = Math.max(0, Math.min(100, (100 - accuracy) + (subjAttempts.filter(a => !a.isCorrect).length * 4)));
-            }
-
-            // Revision due score
-            let revisionDue = 0;
-            let lastPracticedAt = null;
-            if (subjAttempts.length > 0) {
-                const sorted = [...subjAttempts].sort((a, b) => new Date(b.attemptedAt) - new Date(a.attemptedAt));
-                lastPracticedAt = sorted[0].attemptedAt;
-                const daysSince = Math.floor((Date.now() - new Date(lastPracticedAt).getTime()) / (1000 * 60 * 60 * 24));
-                if (daysSince >= 7) revisionDue = 100;
-                else if (daysSince >= 3) revisionDue = 75;
-                else if (daysSince >= 1) revisionDue = 40;
-                else if (accuracy < 75) revisionDue = 60;
-                else revisionDue = 10;
-            } else {
-                revisionDue = 60; // Needs initial practice
-            }
-
-            // PYQ Coverage gap
-            const totalAvailable = Math.max(1, subjPyqs.length);
-            const pyqCoverageGap = Math.round(((totalAvailable - correctCount) / totalAvailable) * 100);
-
-            // Compute composite priorityScore (0-100)
-            const priorityScore = Math.round(
-                (weights.historicalFrequency * historicalFrequency) +
-                (weights.recentFrequency * recentFrequency) +
-                (weights.recurrence * recurrence) +
-                (weights.userWeakness * userWeakness) +
-                (weights.revisionDue * revisionDue) +
-                (weights.pyqCoverageGap * pyqCoverageGap)
-            );
-
-            let priorityLevel = 'MEDIUM';
-            if (priorityScore >= 70) priorityLevel = 'HIGH';
-            else if (priorityScore < 45) priorityLevel = 'LOW';
-
-            let revisionStatus = 'NEEDS_PRACTICE';
-            if (attemptedCount > 0 && revisionDue >= 70) revisionStatus = 'DUE';
-            else if (attemptedCount > 0 && accuracy >= 80) revisionStatus = 'MASTERY_GOOD';
+            const progressPct = topicsCount > 0 ? Math.round((completedCount / topicsCount) * 100) : 0;
 
             return {
                 id: subj.id,
                 name: subj.name,
-                shortName: subj.shortName,
-                icon: subj.icon,
-                historicalWeight: subj.historicalWeight,
-                recentAvgMarks: Math.round(recentAvgMarks * 10) / 10,
-                topicsCount: (subj.topics || []).length,
-                totalPyqs: subjPyqs.length,
-                attemptedCount,
-                correctCount,
-                remainingPyqs,
-                accuracy,
-                lastPracticedAt,
-                revisionDue,
-                revisionStatus,
-                priorityScore,
-                priorityLevel
+                shortName: subj.shortName || subj.name,
+                icon: subj.icon || '📚',
+                historicalWeight: subj.historicalWeight || 0,
+                importance: subj.importance || 'MEDIUM',
+                officialSection: subj.officialSection || '',
+                plannedDateRange: subj.plannedDateRange || 'Oct 2026 – Jan 2027',
+                topicsCount,
+                completedCount,
+                inProgressCount,
+                progressPct,
+                topics
             };
         });
 
-        return subjects.sort((a, b) => b.priorityScore - a.priorityScore);
+        // Sort HIGH -> LOW by historicalWeight
+        return results.sort((a, b) => b.historicalWeight - a.historicalWeight);
     },
 
     /**
-     * Calculate topic-level priority with full explainable signals
+     * Returns topics of a subject sorted by importance:
+     * HIGH -> HIGH-MEDIUM -> MEDIUM -> LOW
      */
-    calculateTopicPriorities() {
-        const syllabus = (typeof GATE_SYLLABUS !== 'undefined') ? GATE_SYLLABUS : [];
-        const attempts = (typeof Store !== 'undefined' && Store.getGatePyqAttempts) ? Store.getGatePyqAttempts() : [];
-        const pyqBank = this.getAllPyqs();
-        const weights = this.getWeights();
-        const mistakes = (typeof Store !== 'undefined' && Store.getMistakes) ? Store.getMistakes() : [];
+    getSubjectTopicsSorted(subjectId) {
+        const subj = this.getSubjectById(subjectId);
+        if (!subj) return [];
+        const topics = [...(subj.topics || [])];
 
-        const topics = [];
-
-        syllabus.forEach(subj => {
-            (subj.topics || []).forEach(top => {
-                const topicPyqs = pyqBank.filter(q => q.topicId === top.id || (q.subjectId === subj.id && q.topicName === top.name));
-                const topicAttempts = attempts.filter(a => a.topicId === top.id);
-                const attemptedCount = topicAttempts.length;
-                const correctCount = topicAttempts.filter(a => a.isCorrect).length;
-                const wrongCount = topicAttempts.filter(a => !a.isCorrect && a.status !== 'SKIPPED').length;
-                const accuracy = attemptedCount > 0 ? Math.round((correctCount / attemptedCount) * 100) : 0;
-                const remainingPyqs = Math.max(0, topicPyqs.length - attemptedCount);
-
-                // Unresolved mistakes in Mistake Bank for this topic
-                const topicMistakes = mistakes.filter(m => 
-                    !m.resolved && 
-                    (m.subject?.toLowerCase().includes(subj.name.toLowerCase()) || m.subject?.toLowerCase().includes('gate')) &&
-                    (m.topic?.toLowerCase().includes(top.name.toLowerCase()) || m.question?.toLowerCase().includes(top.name.toLowerCase()))
-                );
-
-                // 1. Historical frequency (0-100)
-                const historicalFrequency = Math.min(100, Math.round((subj.historicalWeight / 15.0) * 100));
-
-                // 2. Recent frequency (0-100)
-                const recentPapers = (typeof GATE_HISTORICAL_WEIGHTAGE !== 'undefined')
-                    ? GATE_HISTORICAL_WEIGHTAGE.filter(p => p.year >= 2024)
-                    : [];
-                let recentMarks = 0;
-                recentPapers.forEach(p => { recentMarks += (p.marks?.[subj.id] || 0); });
-                const recentFrequency = Math.min(100, Math.round(((recentMarks / Math.max(1, recentPapers.length)) / 15.0) * 100));
-
-                // 3. Recurrence across years (0-100)
-                const recurrence = Math.min(100, Math.max(50, Math.round((topicPyqs.length / 8.0) * 100)));
-
-                // 4. User weakness (0-100)
-                let userWeakness = 55; // baseline
-                if (attemptedCount > 0) {
-                    userWeakness = Math.max(0, Math.min(100, (100 - accuracy) + (topicMistakes.length * 8) + (wrongCount * 5)));
-                }
-
-                // 5. Revision due (0-100)
-                let revisionDue = 0;
-                let lastPracticedAt = null;
-                if (topicAttempts.length > 0) {
-                    const sorted = [...topicAttempts].sort((a, b) => new Date(b.attemptedAt) - new Date(a.attemptedAt));
-                    lastPracticedAt = sorted[0].attemptedAt;
-                    const daysSince = Math.floor((Date.now() - new Date(lastPracticedAt).getTime()) / (1000 * 60 * 60 * 24));
-                    if (daysSince >= 5) revisionDue = 100;
-                    else if (daysSince >= 2) revisionDue = 75;
-                    else if (accuracy < 75) revisionDue = 80;
-                    else revisionDue = 15;
-                } else {
-                    revisionDue = 70; // Needs practice
-                }
-
-                // 6. PYQ Coverage gap (0-100)
-                const totalAvail = Math.max(1, topicPyqs.length);
-                const pyqCoverageGap = Math.round(((totalAvail - correctCount) / totalAvail) * 100);
-
-                // Priority formula
-                let priorityScore = Math.round(
-                    (weights.historicalFrequency * historicalFrequency) +
-                    (weights.recentFrequency * recentFrequency) +
-                    (weights.recurrence * recurrence) +
-                    (weights.userWeakness * userWeakness) +
-                    (weights.revisionDue * revisionDue) +
-                    (weights.pyqCoverageGap * pyqCoverageGap)
-                );
-
-                // Adaptive penalty if mastered recently (accuracy >= 85% and attempted >= 6 and practiced recently)
-                const isMastered = (attemptedCount >= 4 && accuracy >= 85 && revisionDue < 30);
-                if (isMastered) {
-                    priorityScore = Math.max(20, priorityScore - 30);
-                }
-
-                // Build explainable reasons
-                const reasons = [];
-                if (historicalFrequency >= 60) reasons.push('High historical GATE paper weightage');
-                if (recurrence >= 70) reasons.push('Recurring pattern in recent GATE papers');
-                if (attemptedCount > 0 && accuracy < 75) reasons.push(`Your current accuracy (${accuracy}%) is below 80% target`);
-                if (topicMistakes.length > 0) reasons.push(`${topicMistakes.length} unresolved mistake(s) logged in Mistake Bank`);
-                if (revisionDue >= 70 && attemptedCount > 0) reasons.push('Scheduled revision interval reached');
-                if (attemptedCount === 0) reasons.push('Unattempted high-yield GATE topic');
-                if (pyqCoverageGap >= 60) reasons.push(`${remainingPyqs} PYQs unattempted in coverage map`);
-
-                topics.push({
-                    id: top.id,
-                    name: top.name,
-                    subjectId: subj.id,
-                    subjectName: subj.name,
-                    subtopics: top.subtopics || [],
-                    totalPyqs: topicPyqs.length,
-                    attemptedCount,
-                    correctCount,
-                    wrongCount,
-                    remainingPyqs,
-                    accuracy,
-                    topicMistakesCount: topicMistakes.length,
-                    lastPracticedAt,
-                    revisionDue,
-                    pyqCoverageGap,
-                    priorityScore,
-                    isMastered,
-                    signals: {
-                        historicalFrequency,
-                        recentFrequency,
-                        recurrence,
-                        userWeakness,
-                        revisionDue,
-                        pyqCoverageGap
-                    },
-                    reasons
-                });
-            });
-        });
-
-        return topics.sort((a, b) => b.priorityScore - a.priorityScore);
-    },
-
-    /**
-     * Get Tonight's GATE Directive (Section 6, 14, 15)
-     */
-    getTonightDirective() {
-        const topicPriorities = this.calculateTopicPriorities();
-        const topTopic = topicPriorities[0] || {
-            subjectId: 'os',
-            subjectName: 'Operating Systems',
-            id: 'os_process_scheduling',
-            name: 'Process Scheduling',
-            reasons: ['High historical recurrence + your recent accuracy is below target.'],
-            priorityScore: 84
+        const importanceRank = {
+            'HIGH': 4,
+            'HIGH-MEDIUM': 3,
+            'MEDIUM': 2,
+            'LOW': 1
         };
 
-        const todayStr = (typeof DateUtils !== 'undefined') ? DateUtils.todayIST() : new Date().toISOString().split('T')[0];
-        
-        // Check if user already solved a GATE session today
-        const attempts = (typeof Store !== 'undefined' && Store.getGatePyqAttempts) ? Store.getGatePyqAttempts() : [];
-        const todayAttempts = attempts.filter(a => (a.attemptedAt || '').startsWith(todayStr));
-        const isCompletedTonight = todayAttempts.length >= 4;
+        const gate = (typeof Store !== 'undefined' && Store.getGateState) ? Store.getGateState() : {};
+        const topicStatuses = gate.topicStatuses || {};
 
-        let sessionStats = null;
-        if (isCompletedTonight) {
-            const correct = todayAttempts.filter(a => a.isCorrect).length;
-            const wrong = todayAttempts.filter(a => !a.isCorrect && a.status !== 'SKIPPED').length;
-            const acc = Math.round((correct / todayAttempts.length) * 100);
-            sessionStats = {
-                attempted: todayAttempts.length,
-                correct,
-                wrong,
-                accuracy: acc,
-                topic: topTopic.name
+        return topics.map(t => {
+            const stObj = topicStatuses[t.id] || {};
+            return {
+                ...t,
+                subjectId: subj.id,
+                subjectName: subj.name,
+                status: stObj.status || 'NOT_STARTED',
+                notes: stObj.notes || ''
             };
+        }).sort((a, b) => {
+            const rankDiff = (importanceRank[b.importance] || 2) - (importanceRank[a.importance] || 2);
+            if (rankDiff !== 0) return rankDiff;
+            return (b.historicalFrequency || 50) - (a.historicalFrequency || 50);
+        });
+    },
+
+    // =========================================================================
+    // 3. CALENDAR DATA & VALIDATION
+    // =========================================================================
+
+    getCalendarDays() {
+        if (typeof Store !== 'undefined' && Store.getGatePlanItems) {
+            return Store.getGatePlanItems();
+        }
+        const data = this.getSyllabusData();
+        return data.calendar || data.GATE_DEDICATED_CALENDAR_DEFAULT || [];
+    },
+
+    getTodayPlanItem() {
+        const days = this.getCalendarDays();
+        if (!days || days.length === 0) return null;
+
+        // Current simulated / real date
+        const now = new Date();
+        const pad = n => String(n).padStart(2, '0');
+        const todayStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+
+        // 1. Exact match if within calendar range
+        const exactMatch = days.find(d => d.date === todayStr || d.plannedDate === todayStr);
+        if (exactMatch) return exactMatch;
+
+        // 2. If before calendar start (before 2026-10-01), default to Day 1 (2026-10-01)
+        if (todayStr < '2026-10-01') {
+            return days[0];
         }
 
-        const primaryReason = topTopic.reasons?.[0] || 'High historical recurrence + your recent accuracy is below target.';
+        // 3. First non-completed day
+        const firstPending = days.find(d => d.status !== 'COMPLETED');
+        if (firstPending) return firstPending;
+
+        // 4. Default to final day
+        return days[days.length - 1];
+    },
+
+    getUpcomingDays(limit = 5) {
+        const days = this.getCalendarDays();
+        const today = this.getTodayPlanItem();
+        if (!today || !days.length) return [];
+
+        const todayIdx = days.findIndex(d => d.date === today.date);
+        const startIdx = todayIdx >= 0 ? todayIdx + 1 : 0;
+        return days.slice(startIdx, startIdx + limit);
+    },
+
+    validateCoverage() {
+        const data = this.getSyllabusData();
+        if (typeof data.validateGateCalendarCoverage === 'function') {
+            return data.validateGateCalendarCoverage();
+        }
+        if (typeof window !== 'undefined' && typeof window.validateGateCalendarCoverage === 'function') {
+            return window.validateGateCalendarCoverage();
+        }
+
+        const totalTopics = this.getAllTopics().length;
+        const days = this.getCalendarDays();
+        const coveredTopicIds = new Set(days.map(d => d.topicId));
 
         return {
-            subjectId: topTopic.subjectId,
-            subjectName: topTopic.subjectName,
-            subject: {
-                id: topTopic.subjectId,
-                name: topTopic.subjectName,
-                toString() { return topTopic.subjectName; }
-            },
-            topicId: topTopic.id,
-            topicName: topTopic.name,
-            topic: {
-                id: topTopic.id,
-                name: topTopic.name,
-                toString() { return topTopic.name; }
-            },
-            pyqTarget: (typeof GATE_CONFIG !== 'undefined') ? GATE_CONFIG.DEFAULT_SESSION_TARGET : 8,
-            targetPyqs: (typeof GATE_CONFIG !== 'undefined') ? GATE_CONFIG.DEFAULT_SESSION_TARGET : 8,
-            targetAccuracy: (typeof GATE_CONFIG !== 'undefined') ? GATE_CONFIG.TARGET_ACCURACY_PERCENT : 80,
-            durationMinutes: (typeof GATE_CONFIG !== 'undefined') ? GATE_CONFIG.SESSION_DURATION_MINUTES : 90,
-            suggestedDurationMinutes: (typeof GATE_CONFIG !== 'undefined') ? GATE_CONFIG.SESSION_DURATION_MINUTES : 90,
-            reason: primaryReason,
-            reasonsList: topTopic.reasons,
-            priorityScore: topTopic.priorityScore,
-            isCompletedTonight,
-            sessionStats
+            isValid: coveredTopicIds.size === totalTopics && days.length === 123,
+            totalSyllabusTopics: totalTopics,
+            plannedTopics: coveredTopicIds.size,
+            unplannedTopics: Math.max(0, totalTopics - coveredTopicIds.size),
+            totalCalendarDays: 123,
+            filledCalendarDays: days.length,
+            missingTopics: [],
+            duplicateTopics: []
         };
     },
 
-    /**
-     * Get all available PYQs (Built-in + User custom imported)
-     */
-    getAllPyqs() {
-        const builtin = (typeof GATE_PYQ_DATASET !== 'undefined') ? GATE_PYQ_DATASET : [];
-        const custom = (typeof Store !== 'undefined' && Store.getGateCustomPyqs) ? Store.getGateCustomPyqs() : [];
-        return [...builtin, ...custom];
+    // =========================================================================
+    // 4. BACKWARD COMPATIBILITY DIRECTIVES & METRICS (For ai-engine & schedule)
+    // =========================================================================
+
+    getTonightDirective() {
+        const todayItem = this.getTodayPlanItem();
+        const subjName = todayItem ? (todayItem.subjectName || todayItem.subjectId) : 'Algorithms';
+        const topName = todayItem ? todayItem.topicName : 'Asymptotic Analysis & Recurrences';
+        const subjId = todayItem ? todayItem.subjectId : 'algo';
+        const topId = todayItem ? todayItem.topicId : 'algo_asymptotic_complexity';
+
+        return {
+            date: todayItem ? todayItem.date : '2026-10-01',
+            subjectId: subjId,
+            subjectName: subjName,
+            subject: { id: subjId, name: subjName },
+            topicId: topId,
+            topicName: topName,
+            topic: { id: topId, name: topName },
+            importance: todayItem ? (todayItem.importance || 'HIGH') : 'HIGH',
+            objective: todayItem ? (todayItem.objective || 'Complete syllabus reading, short notes & topic-wise handbook PYQs') : 'Master asymptotic complexity definitions and solve handbook PYQs',
+            targetPyqs: 8,
+            pyqTarget: 8,
+            targetAccuracy: 85,
+            suggestedDurationMinutes: 90,
+            priorityScore: todayItem ? (todayItem.historicalFrequency || 90) : 95,
+            tasks: todayItem ? (todayItem.tasks || []) : [],
+            reason: todayItem ? (todayItem.isPractice
+                ? 'Deep-dive problem practice and handbook PYQ problem-solving block'
+                : (todayItem.isRevision ? 'Scheduled revision checkpoint for long-term retention' : 'Primary syllabus curriculum coverage block'))
+                : 'Official syllabus-first schedule for GATE 2027 kickoff'
+        };
+    },
+
+    getGateSummaryMetrics() {
+        if (typeof Store !== 'undefined' && Store.getGateSyllabusProgress) {
+            return Store.getGateSyllabusProgress();
+        }
+        return {
+            totalTopics: 81,
+            completedTopics: 0,
+            inProgressTopics: 0,
+            totalSubjects: 11,
+            completedSubjects: 0,
+            totalCalendarDays: 123,
+            completedCalendarDays: 0,
+            highPriorityTotal: 71,
+            highPriorityCompleted: 0,
+            overallProgressPct: 0
+        };
     },
 
     // =========================================================================
-    // 2. TODAY'S COMMAND DIRECTIVE CARD (Section 15)
+    // 5. MAIN PAGE RENDERER (Section 2, 3, 7, 16, 17, 18, 19)
     // =========================================================================
 
-    renderTodayCard() {
-        const container = document.getElementById('todayGateDirectiveWidget');
+    renderPlannerPage() {
+        const container = document.getElementById('view-gate');
         if (!container) return;
 
-        const directive = this.getTonightDirective();
+        try {
+            const progress = this.getGateSummaryMetrics();
+            const todayItem = this.getTodayPlanItem();
+            const subjects = this.calculateSubjectPriorities();
+            const upcoming = this.getUpcomingDays(4);
+            const validation = this.validateCoverage();
 
-        if (directive.isCompletedTonight && directive.sessionStats) {
             container.innerHTML = `
-                <div class="gate-directive-card completed">
-                    <div class="gate-directive-header">
-                        <div class="gate-dir-eyebrow">
-                            <span class="gate-pulse-dot done"></span>
-                            <span>GATE 2027 // TONIGHT · COMPLETED</span>
+                <!-- GATE 2027 MAIN HEADER -->
+                <div class="gate-planner-header">
+                    <div>
+                        <div class="gate-hero-pill-row">
+                            <span class="gate-hero-pill">🎓 GATE 2027 · SYLLABUS-FIRST STUDY PLANNER</span>
+                            <span class="gate-coverage-pill ${validation.isValid ? 'valid' : 'invalid'}">
+                                ${validation.isValid ? '🛡️ 100% Syllabus Coverage' : '⚠️ Syllabus Coverage Alert'}
+                            </span>
                         </div>
-                        <span class="gate-time-slot">10:30 PM – 12:00 AM</span>
+                        <h2 class="gate-view-title">GATE 2027 Study Planner</h2>
+                        <p class="gate-view-desc">
+                            Syllabus-first, topic-first, calendar-first preparation. Every official CSE 2027 topic is mapped to an actionable date with concrete checklists.
+                        </p>
+                    </div>
+                    <div class="gate-header-action-row">
+                        <button type="button" class="action-btn-ghost" onclick="GatePlannerEngine.validateAndReportCoverage()">
+                            <span>🔍 Audit Coverage</span>
+                        </button>
+                        <button type="button" class="btn-primary" onclick="GatePlannerEngine.openTopicDetailModal('${todayItem ? todayItem.date : '2026-10-01'}')">
+                            <span>⚡ Today's Topic Details</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- VALIDATION ALERT (Section 20) -->
+                ${!validation.isValid ? `
+                    <div class="gate-validation-failure-banner">
+                        <h4>⚠️ GATE PLAN VALIDATION FAILED</h4>
+                        <p>Missing topics: <b>${validation.unplannedTopics}</b> · Empty dates: <b>${Math.max(0, 123 - validation.filledCalendarDays)}</b></p>
+                    </div>
+                ` : ''}
+
+                <!-- A. OVERALL SYLLABUS PROGRESS SCOREBOARD (Section 19) -->
+                <div class="gate-stats-grid">
+                    <div class="gate-stat-card">
+                        <div class="gs-label">Overall Progress</div>
+                        <div class="gs-val accent">${progress.overallProgressPct}%</div>
+                        <div class="gs-sub">Weighted syllabus completion</div>
+                    </div>
+                    <div class="gate-stat-card">
+                        <div class="gs-label">Topics Completed</div>
+                        <div class="gs-val ${progress.completedTopics > 0 ? 'success' : 'muted'}">
+                            ${progress.completedTopics} / ${progress.totalTopics}
+                        </div>
+                        <div class="gs-sub">${progress.inProgressTopics} in progress · 81 total topics</div>
+                    </div>
+                    <div class="gate-stat-card">
+                        <div class="gs-label">Subjects Mastered</div>
+                        <div class="gs-val ${progress.completedSubjects > 0 ? 'success' : 'muted'}">
+                            ${progress.completedSubjects} / ${progress.totalSubjects}
+                        </div>
+                        <div class="gs-sub">11 Official GATE Sections</div>
+                    </div>
+                    <div class="gate-stat-card">
+                        <div class="gs-label">Dedicated Calendar</div>
+                        <div class="gs-val accent">
+                            ${progress.completedCalendarDays} / ${progress.totalCalendarDays}
+                        </div>
+                        <div class="gs-sub">01 Oct 2026 → 31 Jan 2027</div>
+                    </div>
+                    <div class="gate-stat-card">
+                        <div class="gs-label">High Priority Coverage</div>
+                        <div class="gs-val ${progress.highPriorityCompleted > 0 ? 'success' : 'warning'}">
+                            ${progress.highPriorityCompleted} / ${progress.highPriorityTotal}
+                        </div>
+                        <div class="gs-sub">High & High-Medium Weight</div>
+                    </div>
+                    <div class="gate-stat-card">
+                        <div class="gs-label">Revision Required</div>
+                        <div class="gs-val ${progress.revisionRequiredTopics > 0 ? 'warning' : 'muted'}">
+                            ${progress.revisionRequiredTopics}
+                        </div>
+                        <div class="gs-sub">Scheduled spaced review</div>
+                    </div>
+                </div>
+
+                <!-- B. TODAY'S GATE PLAN & UP NEXT DUAL STRIP (Section 14, 17, 18) -->
+                <div class="gate-today-upnext-grid">
+                    <!-- Today Card -->
+                    <div class="gate-today-card-box">
+                        <div class="gate-section-label">⚡ TODAY'S GATE PLAN</div>
+                        <div id="gateTodayCardContainer">
+                            ${this.renderTodayCardHtml(todayItem)}
+                        </div>
                     </div>
 
-                    <div class="gate-directive-body">
-                        <div class="gate-dir-subj-row">
-                            <span class="gate-dir-subj">${directive.subject.toUpperCase()}</span>
-                            <span class="gate-dir-arrow">→</span>
-                            <span class="gate-dir-topic">${directive.topic}</span>
+                    <!-- Up Next Queue -->
+                    <div class="gate-upnext-card-box">
+                        <div class="gate-section-label">⏭️ UP NEXT IN CALENDAR</div>
+                        <div class="gate-upnext-list">
+                            ${upcoming.length > 0 ? upcoming.map(u => `
+                                <div class="gate-upnext-item" onclick="GatePlannerEngine.openTopicDetailModal('${u.date}')">
+                                    <div class="gate-upnext-date-badge">${this.formatShortDate(u.date)}</div>
+                                    <div class="gate-upnext-info">
+                                        <div class="gate-upnext-subj">${this.escapeHtml(u.subjectName)}</div>
+                                        <div class="gate-upnext-topic">${this.escapeHtml(u.topicName)}</div>
+                                    </div>
+                                    <span class="gate-importance-tag ${u.importance ? u.importance.toLowerCase().replace('-', '_') : 'medium'}">
+                                        ${u.importance || 'MED'}
+                                    </span>
+                                </div>
+                            `).join('') : '<div class="gate-empty-hint">End of calendar reached.</div>'}
                         </div>
+                    </div>
+                </div>
 
-                        <div class="gate-session-result-pill-row">
-                            <span class="gate-res-pill correct">✓ ${directive.sessionStats.attempted} PYQs completed</span>
-                            <span class="gate-res-pill correct">✓ ${directive.sessionStats.correct} correct</span>
-                            ${directive.sessionStats.wrong > 0 ? `<span class="gate-res-pill warning">⚠ ${directive.sessionStats.wrong} mistake(s)</span>` : ''}
-                            <span class="gate-res-pill info">${directive.sessionStats.accuracy}% accuracy</span>
+                <!-- C. DEDICATED GATE 2027 STUDY CALENDAR (Section 7, 8, 9, 10, 16) -->
+                <div class="gate-calendar-section-wrap">
+                    <div class="gate-calendar-header-bar">
+                        <div>
+                            <div class="gate-cal-eyebrow">📅 DEDICATED GATE CALENDAR · ZERO EMPTY DATES</div>
+                            <h3 class="gate-cal-title">GATE 2027 Study Calendar</h3>
+                            <p class="gate-cal-subtitle">Exact 123-Day Schedule: 01 October 2026 through 31 January 2027</p>
                         </div>
-
-                        <div class="gate-next-rec-box">
-                            <b>Next Recommendation:</b> Revise ${directive.topic} weak concepts and solve targeted PYQs tomorrow.
+                        <div class="gate-cal-month-nav">
+                            <button type="button" class="gate-cal-nav-btn ${this.activeMonth === '2026-10' ? 'active' : ''}" onclick="GatePlannerEngine.setCalendarMonth('2026-10')">
+                                Oct 2026
+                            </button>
+                            <button type="button" class="gate-cal-nav-btn ${this.activeMonth === '2026-11' ? 'active' : ''}" onclick="GatePlannerEngine.setCalendarMonth('2026-11')">
+                                Nov 2026
+                            </button>
+                            <button type="button" class="gate-cal-nav-btn ${this.activeMonth === '2026-12' ? 'active' : ''}" onclick="GatePlannerEngine.setCalendarMonth('2026-12')">
+                                Dec 2026
+                            </button>
+                            <button type="button" class="gate-cal-nav-btn ${this.activeMonth === '2027-01' ? 'active' : ''}" onclick="GatePlannerEngine.setCalendarMonth('2027-01')">
+                                Jan 2027
+                            </button>
                         </div>
                     </div>
 
-                    <div class="gate-directive-actions">
-                        <button class="btn-primary" onclick="GatePlannerEngine.startPyqSession('${directive.subjectId}', '${directive.topicId}', 5)">
-                            <span>🔄</span>
-                            <span>Practice 5 More PYQs</span>
-                        </button>
-                        <button class="action-btn-ghost" onclick="App.switchView('gate')">
-                            <span>Open GATE Planner →</span>
-                        </button>
+                    <div class="gate-calendar-grid" id="gateCalendarGrid">
+                        ${this.renderCalendarMonthHtml(this.activeMonth)}
+                    </div>
+                </div>
+
+                <!-- D. SUBJECT LIST & TOPIC PRIORITIES (Section 3, 4, 5, 6) -->
+                <div class="gate-subjects-section-wrap">
+                    <div class="gate-subjects-header-bar">
+                        <div>
+                            <div class="gate-cal-eyebrow">📚 OFFICIAL SYLLABUS DIRECTORY · 11 CANONICAL SUBJECTS</div>
+                            <h3 class="gate-cal-title">GATE CSE 2027 Subjects & Topics</h3>
+                            <p class="gate-cal-subtitle">
+                                Sorted by historical weightage (High → Low). Expand any subject to inspect topics, checklists, and completion status.
+                            </p>
+                        </div>
+                        <div class="gate-disclaimer-pill" title="Planning evidence disclaimer">
+                            ⚖️ Historical weightage is planning evidence only. Not guaranteed marks.
+                        </div>
+                    </div>
+
+                    <div class="gate-subjects-list" id="gateSubjectsList">
+                        ${subjects.map(s => this.renderSubjectCardHtml(s)).join('')}
                     </div>
                 </div>
             `;
-            return;
+        } catch (err) {
+            console.error('[GatePlannerEngine] renderPlannerPage error:', err);
+            container.innerHTML = `
+                <div class="gate-error-banner" style="padding: 24px; background: rgba(239, 68, 68, 0.1); border: 1px solid #ef4444; border-radius: 8px;">
+                    <h3 style="color: #ef4444; margin-top: 0;">GATE 2027 Planner Initialization Error</h3>
+                    <p style="color: #cbd5e1;">${this.escapeHtml(err.message || 'Unknown error occurred while rendering GATE Planner.')}</p>
+                    <button class="btn-primary" onclick="GatePlannerEngine.renderPlannerPage()">Retry Initialization</button>
+                </div>
+            `;
+        }
+    },
+
+    // =========================================================================
+    // 6. TODAY'S GATE PLAN CARD RENDERER (Section 12, 13, 17)
+    // =========================================================================
+
+    renderTodayCardHtml(todayItem) {
+        if (!todayItem) {
+            return `<div class="gate-empty-hint">No planned topic detected for today.</div>`;
         }
 
-        container.innerHTML = `
-            <div class="gate-directive-card">
-                <div class="gate-directive-header">
-                    <div class="gate-dir-eyebrow">
-                        <span class="gate-pulse-dot"></span>
-                        <span>GATE 2027 // TONIGHT</span>
-                    </div>
-                    <span class="gate-time-slot">10:30 PM – 12:00 AM</span>
-                </div>
+        const tasks = todayItem.tasks || [];
+        const completedTasks = tasks.filter(t => t.completed || t.done).length;
 
-                <div class="gate-directive-body">
-                    <div class="gate-dir-subj-row">
-                        <span class="gate-dir-subj">${directive.subject.toUpperCase()}</span>
-                        <span class="gate-dir-arrow">→</span>
-                        <span class="gate-dir-topic">${directive.topic}</span>
-                    </div>
-
-                    <div class="gate-dir-target-strip">
-                        <div class="gate-target-item">
-                            <span class="gt-label">Objective</span>
-                            <span class="gt-val">Solve ${directive.targetPyqs} PYQs</span>
+        return `
+            <div class="gate-today-card ${todayItem.status === 'COMPLETED' ? 'completed' : ''}">
+                <div class="gate-today-header">
+                    <div>
+                        <div class="gate-today-date-str">
+                            <span>📅 ${this.formatFullDate(todayItem.date)}</span>
+                            <span class="gate-time-badge">10:30 PM – 12:00 AM (90m)</span>
                         </div>
-                        <div class="gate-target-item">
-                            <span class="gt-label">Target Accuracy</span>
-                            <span class="gt-val">≥ ${directive.targetAccuracy}%</span>
-                        </div>
-                        <div class="gate-target-item">
-                            <span class="gt-label">Duration</span>
-                            <span class="gt-val">${directive.durationMinutes} mins</span>
-                        </div>
-                        <div class="gate-target-item">
-                            <span class="gt-label">Priority Score</span>
-                            <span class="gt-val accent">${directive.priorityScore} / 100</span>
+                        <div class="gate-today-subj-row">
+                            <span class="gt-subj-name">${this.escapeHtml(todayItem.subjectName || todayItem.subjectId)}</span>
+                            <span class="gt-arrow">→</span>
+                            <span class="gt-topic-name">${this.escapeHtml(todayItem.topicName)}</span>
                         </div>
                     </div>
-
-                    <div class="gate-dir-reason-box">
-                        <span class="gate-reason-icon">💡</span>
-                        <div class="gate-reason-content">
-                            <b>Why this topic tonight?</b>
-                            <p>${directive.reason}</p>
-                        </div>
+                    <div class="gate-today-badges">
+                        <span class="gate-importance-tag ${todayItem.importance ? todayItem.importance.toLowerCase().replace('-', '_') : 'high'}">
+                            ${todayItem.importance || 'HIGH'} PRIORITY
+                        </span>
+                        <span class="gate-status-pill ${todayItem.status ? todayItem.status.toLowerCase() : 'not_started'}">
+                            ${this.formatStatusLabel(todayItem.status)}
+                        </span>
                     </div>
                 </div>
 
-                <div class="gate-directive-actions">
-                    <button class="btn-primary gate-btn-start-hero" id="btnStartGateTonightSession" onclick="GatePlannerEngine.startPyqSession('${directive.subjectId}', '${directive.topicId}', ${directive.targetPyqs})">
-                        <span>▶</span>
-                        <span>START PYQ SESSION</span>
+                <div class="gate-today-objective">
+                    <b>🎯 Objective:</b> ${this.escapeHtml(todayItem.objective || 'Master topic syllabus concepts, formulate notes, and solve topic PYQs from your handbook.')}
+                </div>
+
+                <div class="gate-today-checklist-wrap">
+                    <div class="gate-checklist-header">
+                        <span>WHAT TO DO (${completedTasks}/${tasks.length} done):</span>
+                        <small>Check items as you study. PYQ solving is an action item.</small>
+                    </div>
+                    <div class="gate-checklist-tasks">
+                        ${tasks.map((task, idx) => `
+                            <label class="gate-check-item ${task.completed || task.done ? 'checked' : ''}">
+                                <input type="checkbox"
+                                    ${task.completed || task.done ? 'checked' : ''}
+                                    onchange="GatePlannerEngine.toggleTaskFromUI('${todayItem.date}', ${idx})">
+                                <span>${this.escapeHtml(task.text)}</span>
+                            </label>
+                        `).join('')}
+                    </div>
+                </div>
+
+                <div class="gate-today-actions">
+                    <button type="button" class="btn-primary" onclick="GatePlannerEngine.openTopicDetailModal('${todayItem.date}')">
+                        <span>📖 View Full Topic Details & Notes →</span>
                     </button>
-                    <button class="action-btn-ghost" onclick="App.switchView('gate')">
-                        <span>View Full GATE Planner →</span>
-                    </button>
+                    ${todayItem.status !== 'COMPLETED' ? `
+                        <button type="button" class="action-btn-ghost" onclick="GatePlannerEngine.setTopicStatusFromUI('${todayItem.topicId}', 'COMPLETED')">
+                            <span>✓ Mark Topic Complete</span>
+                        </button>
+                    ` : `
+                        <button type="button" class="action-btn-ghost" onclick="GatePlannerEngine.setTopicStatusFromUI('${todayItem.topicId}', 'IN_PROGRESS')">
+                            <span>Reopen Topic</span>
+                        </button>
+                    `}
                 </div>
             </div>
         `;
     },
 
+    renderTodayCard() {
+        const container = document.getElementById('gateTodayCardContainer');
+        if (!container) return;
+        const todayItem = this.getTodayPlanItem();
+        container.innerHTML = this.renderTodayCardHtml(todayItem);
+    },
+
     // =========================================================================
-    // 3. PYQ SESSION WORKSPACE ENGINE (Section 6 & 7)
+    // 7. CALENDAR MONTH GRID RENDERER (Section 7, 8, 9, 16)
     // =========================================================================
 
-    /**
-     * Start a focused PYQ workspace session
-     */
-    startPyqSession(subjectId, topicId, count = 8) {
-        const allPyqs = this.getAllPyqs();
-        
-        // Select matching PYQs for this topic
-        let selectedPyqs = allPyqs.filter(q => q.topicId === topicId);
-        
-        // Fallback: If fewer questions available for this specific topic, supplement with subject PYQs
-        if (selectedPyqs.length < count && subjectId) {
-            const extra = allPyqs.filter(q => q.subjectId === subjectId && q.topicId !== topicId);
-            selectedPyqs = [...selectedPyqs, ...extra];
+    renderCalendarMonthHtml(monthKey) {
+        const allDays = this.getCalendarDays();
+        const monthDays = allDays.filter(d => (d.date || d.plannedDate || '').startsWith(monthKey));
+
+        if (!monthDays || monthDays.length === 0) {
+            return `<div class="gate-empty-hint">No calendar items for ${monthKey}.</div>`;
         }
 
-        // Fallback: If still under count, add other real GATE PYQs
-        if (selectedPyqs.length < count) {
-            const rem = allPyqs.filter(q => !selectedPyqs.some(s => s.id === q.id));
-            selectedPyqs = [...selectedPyqs, ...rem];
-        }
+        return monthDays.map(day => {
+            const shortDate = this.formatShortDate(day.date);
+            const statusClass = (day.status || 'NOT_STARTED').toLowerCase();
+            const impClass = (day.importance || 'MEDIUM').toLowerCase().replace('-', '_');
 
-        const sessionPyqs = selectedPyqs.slice(0, count);
-
-        if (sessionPyqs.length === 0) {
-            showToast('No PYQs available for this topic. Import real PYQs below.', 'warning');
-            return;
-        }
-
-        this.activeSession = {
-            id: 'gate_sess_' + Date.now(),
-            subjectId,
-            topicId,
-            subjectName: sessionPyqs[0].subjectName || 'Operating Systems',
-            topicName: sessionPyqs[0].topicName || 'Process Scheduling',
-            pyqs: sessionPyqs,
-            currentIndex: 0,
-            startTime: Date.now(),
-            questionStartTime: Date.now(),
-            results: [],
-            isFinished: false
-        };
-
-        this.sessionSeconds = 0;
-        this.questionSeconds = 0;
-        this.startTimers();
-
-        // Also initiate linked study session in StudySessionEngine if available
-        if (typeof StudySessionEngine !== 'undefined' && StudySessionEngine.startDirectSession) {
-            StudySessionEngine.startDirectSession('GATE', this.activeSession.subjectName, this.activeSession.topicName, null);
-        }
-
-        this.openWorkspaceModal();
-        this.renderCurrentQuestion();
-    },
-
-    startTimers() {
-        if (this.timerInterval) clearInterval(this.timerInterval);
-        this.timerInterval = setInterval(() => {
-            this.sessionSeconds++;
-            this.questionSeconds++;
-            this.updateTimerDisplay();
-        }, 1000);
-    },
-
-    stopTimers() {
-        if (this.timerInterval) {
-            clearInterval(this.timerInterval);
-            this.timerInterval = null;
-        }
-    },
-
-    updateTimerDisplay() {
-        const qEl = document.getElementById('gatePyqQuestionTimer');
-        if (qEl) {
-            const m = Math.floor(this.questionSeconds / 60);
-            const s = this.questionSeconds % 60;
-            qEl.textContent = `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-        }
-        const sEl = document.getElementById('gatePyqSessionTimer');
-        if (sEl) {
-            const sm = Math.floor(this.sessionSeconds / 60);
-            const ss = this.sessionSeconds % 60;
-            sEl.textContent = `${String(sm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
-        }
-    },
-
-    openWorkspaceModal() {
-        let modal = document.getElementById('gatePyqWorkspaceModal');
-        if (!modal) {
-            modal = document.createElement('div');
-            modal.id = 'gatePyqWorkspaceModal';
-            modal.className = 'modal-overlay gate-workspace-modal';
-            document.body.appendChild(modal);
-        }
-        modal.classList.add('active');
-        document.body.style.overflow = 'hidden';
-    },
-
-    closeWorkspaceModal() {
-        this.stopTimers();
-        const modal = document.getElementById('gatePyqWorkspaceModal');
-        if (modal) modal.classList.remove('active');
-        document.body.style.overflow = '';
-    },
-
-    renderCurrentQuestion() {
-        const modal = document.getElementById('gatePyqWorkspaceModal');
-        if (!modal || !this.activeSession) return;
-
-        const { pyqs, currentIndex } = this.activeSession;
-        const currentPyq = pyqs[currentIndex];
-        this.questionSeconds = 0; // reset per-question timer
-
-        const totalQ = pyqs.length;
-        const qNum = currentIndex + 1;
-        const typeBadge = currentPyq.type || 'MCQ';
-        const marks = currentPyq.marks || 1;
-
-        // Render MCQ options or NAT input
-        let inputHtml = '';
-        if (typeBadge === 'MCQ' || typeBadge === 'MSQ') {
-            inputHtml = `
-                <div class="gate-options-grid">
-                    ${(currentPyq.options || []).map(opt => `
-                        <label class="gate-option-pill" for="opt_${opt.key}">
-                            <input type="${typeBadge === 'MSQ' ? 'checkbox' : 'radio'}" id="opt_${opt.key}" name="gatePyqOption" value="${opt.key}">
-                            <span class="gate-opt-key">${opt.key}</span>
-                            <span class="gate-opt-text">${opt.text}</span>
-                        </label>
-                    `).join('')}
+            return `
+                <div class="gate-cal-card ${statusClass}" onclick="GatePlannerEngine.openTopicDetailModal('${day.date}')" title="Click to open topic checklist and notes">
+                    <div class="gcc-top">
+                        <span class="gcc-date">${shortDate}</span>
+                        <span class="gate-importance-tag sm ${impClass}">${day.importance || 'MED'}</span>
+                    </div>
+                    <div class="gcc-subj">${this.escapeHtml(day.subjectName || day.subjectId)}</div>
+                    <div class="gcc-topic">${this.escapeHtml(day.topicName)}</div>
+                    <div class="gcc-obj">${this.escapeHtml(day.objective || 'Study + Notes + Topic PYQs')}</div>
+                    <div class="gcc-bottom">
+                        <span class="gcc-status-dot ${statusClass}"></span>
+                        <span class="gcc-status-text">${this.formatStatusLabel(day.status)}</span>
+                    </div>
                 </div>
             `;
+        }).join('');
+    },
+
+    setCalendarMonth(monthKey) {
+        this.activeMonth = monthKey;
+        const grid = document.getElementById('gateCalendarGrid');
+        if (grid) {
+            grid.innerHTML = this.renderCalendarMonthHtml(monthKey);
+        }
+        document.querySelectorAll('.gate-cal-nav-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.textContent.trim().toLowerCase().includes(monthKey === '2026-10' ? 'oct' : (monthKey === '2026-11' ? 'nov' : (monthKey === '2026-12' ? 'dec' : 'jan'))));
+        });
+    },
+
+    // =========================================================================
+    // 8. SUBJECT CARD & ACCORDION RENDERER (Section 3, 5, 6)
+    // =========================================================================
+
+    renderSubjectCardHtml(subject) {
+        const isExpanded = this.expandedSubjects.has(subject.id);
+        const topics = this.getSubjectTopicsSorted(subject.id);
+
+        return `
+            <div class="gate-subject-card ${isExpanded ? 'expanded' : ''}" id="gateSubjCard_${subject.id}">
+                <div class="gate-subject-card-header" onclick="GatePlannerEngine.toggleSubjectAccordion('${subject.id}')">
+                    <div class="gsc-left">
+                        <span class="gsc-icon">${subject.icon}</span>
+                        <div>
+                            <div class="gsc-title-row">
+                                <h4 class="gsc-name">${this.escapeHtml(subject.name.toUpperCase())}</h4>
+                                <span class="gate-importance-tag ${subject.importance ? subject.importance.toLowerCase().replace('-', '_') : 'high'}">
+                                    ${subject.importance}
+                                </span>
+                            </div>
+                            <div class="gsc-section-name">${this.escapeHtml(subject.officialSection)} · Planned: ${this.escapeHtml(subject.plannedDateRange)}</div>
+                        </div>
+                    </div>
+                    <div class="gsc-right">
+                        <div class="gsc-meta-group">
+                            <div class="gsc-meta-item">
+                                <small>Historical Weight</small>
+                                <b>~${subject.historicalWeight}%</b>
+                            </div>
+                            <div class="gsc-meta-item">
+                                <small>Topics</small>
+                                <b>${subject.completedCount} / ${subject.topicsCount}</b>
+                            </div>
+                            <div class="gsc-meta-item">
+                                <small>Progress</small>
+                                <b class="${subject.progressPct === 100 ? 'success' : ''}">${subject.progressPct}%</b>
+                            </div>
+                        </div>
+                        <button type="button" class="btn-accordion-toggle">
+                            ${isExpanded ? '▲ HIDE TOPICS' : '▼ VIEW TOPICS'}
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Progress Bar -->
+                <div class="gsc-prog-track">
+                    <div class="gsc-prog-fill" style="width: ${subject.progressPct}%;"></div>
+                </div>
+
+                <!-- Expandable Topics Table (Section 5, 6) -->
+                ${isExpanded ? `
+                    <div class="gate-subject-topics-accordion">
+                        <div class="gate-topics-table-header">
+                            <span>Topic & Subtopics</span>
+                            <span>Historical Frequency</span>
+                            <span>Importance</span>
+                            <span>Status</span>
+                            <span>Action</span>
+                        </div>
+                        <div class="gate-topics-table-body">
+                            ${topics.map(t => {
+                                const impClass = (t.importance || 'MEDIUM').toLowerCase().replace('-', '_');
+                                const statusClass = (t.status || 'NOT_STARTED').toLowerCase();
+
+                                return `
+                                    <div class="gate-topic-row">
+                                        <div class="gtr-info">
+                                            <div class="gtr-name">${this.escapeHtml(t.name)}</div>
+                                            <div class="gtr-subtopics">
+                                                ${(t.subtopics || []).slice(0, 3).map(st => `<span>• ${this.escapeHtml(st)}</span>`).join(' ')}
+                                            </div>
+                                        </div>
+                                        <div class="gtr-freq">
+                                            <div class="freq-track">
+                                                <div class="freq-fill" style="width: ${t.historicalFrequency || 70}%;"></div>
+                                            </div>
+                                            <small>${t.historicalFrequency || 70}% recurrence</small>
+                                        </div>
+                                        <div class="gtr-imp">
+                                            <span class="gate-importance-tag sm ${impClass}">${t.importance}</span>
+                                        </div>
+                                        <div class="gtr-status">
+                                            <span class="gate-status-pill sm ${statusClass}">${this.formatStatusLabel(t.status)}</span>
+                                        </div>
+                                        <div class="gtr-action">
+                                            <button type="button" class="btn-table-action" onclick="GatePlannerEngine.openTopicDetailModal(null, '${t.id}')">
+                                                What to Do →
+                                            </button>
+                                        </div>
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+                    </div>
+                ` : ''}
+            </div>
+        `;
+    },
+
+    toggleSubjectAccordion(subjectId) {
+        if (this.expandedSubjects.has(subjectId)) {
+            this.expandedSubjects.delete(subjectId);
         } else {
-            inputHtml = `
-                <div class="gate-nat-box">
-                    <label class="form-label" for="natAnswerInput">Enter Numerical Answer:</label>
-                    <input type="text" id="natAnswerInput" class="form-input gate-nat-input" placeholder="e.g. 106 or 5.33" autocomplete="off">
-                </div>
-            `;
+            this.expandedSubjects.add(subjectId);
         }
+        const card = document.getElementById(`gateSubjCard_${subjectId}`);
+        if (card) {
+            const subj = this.calculateSubjectPriorities().find(s => s.id === subjectId);
+            if (subj) {
+                const tempDiv = document.createElement('div');
+                tempDiv.innerHTML = this.renderSubjectCardHtml(subj);
+                card.replaceWith(tempDiv.firstElementChild);
+            }
+        }
+    },
+
+    // =========================================================================
+    // 9. TOPIC DETAIL & WHAT TO DO MODAL (Section 8, 12, 13, 24)
+    // =========================================================================
+
+    openTopicDetailModal(dateStr, topicId) {
+        const modal = document.getElementById('gateTopicDetailModal');
+        if (!modal) return;
+
+        let planItem = null;
+        let baseTopic = null;
+
+        if (dateStr) {
+            planItem = (typeof Store !== 'undefined' && Store.getGatePlanItemByDate)
+                ? Store.getGatePlanItemByDate(dateStr)
+                : this.getCalendarDays().find(d => d.date === dateStr);
+        }
+
+        if (planItem) {
+            baseTopic = this.getTopicById(planItem.topicId);
+        } else if (topicId) {
+            baseTopic = this.getTopicById(topicId);
+            // Find first planned day for this topic
+            planItem = this.getCalendarDays().find(d => d.topicId === topicId);
+        }
+
+        if (!baseTopic && planItem) {
+            baseTopic = {
+                id: planItem.topicId,
+                name: planItem.topicName,
+                subjectId: planItem.subjectId,
+                subjectName: planItem.subjectName,
+                importance: planItem.importance || 'HIGH',
+                historicalFrequency: planItem.historicalFrequency || 80,
+                defaultChecklist: []
+            };
+        }
+
+        if (!baseTopic) return;
+
+        const effectiveDate = planItem ? (planItem.plannedDate || planItem.date) : '2026-10-01';
+        const tasks = (planItem && Array.isArray(planItem.tasks) && planItem.tasks.length > 0)
+            ? planItem.tasks
+            : (baseTopic.defaultChecklist || []).map((txt, idx) => ({ id: `task_${idx}`, text: txt, completed: false }));
+
+        const gate = (typeof Store !== 'undefined' && Store.getGateState) ? Store.getGateState() : {};
+        const topicStatus = (gate.topicStatuses && gate.topicStatuses[baseTopic.id]?.status) || (planItem ? planItem.status : 'NOT_STARTED');
+        const userNotes = (gate.topicStatuses && gate.topicStatuses[baseTopic.id]?.notes) || (planItem ? planItem.userNotes : '');
+
+        this.activeModalDate = planItem ? planItem.date : effectiveDate;
+        this.activeModalTopicId = baseTopic.id;
 
         modal.innerHTML = `
-            <div class="modal-window gate-workspace-window">
-                <!-- Workspace Topbar -->
-                <div class="gate-workspace-topbar">
-                    <div class="gate-ws-title-group">
-                        <span class="gate-brand-pill">⚡ FORGE GATE WORKSPACE</span>
-                        <div class="gate-ws-heading">
-                            <span>${this.activeSession.subjectName}</span>
-                            <span class="sep">/</span>
-                            <span class="topic">${this.activeSession.topicName}</span>
+            <div class="modal-window gate-detail-modal-window">
+                <div class="modal-header">
+                    <div>
+                        <div class="gate-modal-eyebrow">
+                            <span>${this.escapeHtml(baseTopic.subjectName || baseTopic.subjectId)}</span>
+                            <span>• Planned Date: ${effectiveDate}</span>
+                        </div>
+                        <h3 class="gate-modal-title">${this.escapeHtml(baseTopic.name || baseTopic.topicName)}</h3>
+                    </div>
+                    <button type="button" class="btn-close-modal" onclick="GatePlannerEngine.closeTopicDetailModal()">×</button>
+                </div>
+
+                <div class="modal-body gate-modal-body">
+                    <!-- Topic Attributes Strip -->
+                    <div class="gate-modal-attr-strip">
+                        <div class="gma-item">
+                            <small>Importance</small>
+                            <span class="gate-importance-tag sm ${baseTopic.importance ? baseTopic.importance.toLowerCase().replace('-', '_') : 'high'}">
+                                ${baseTopic.importance || 'HIGH'}
+                            </span>
+                        </div>
+                        <div class="gma-item">
+                            <small>Recurrence</small>
+                            <b>${baseTopic.historicalFrequency || 80}% in past papers</b>
+                        </div>
+                        <div class="gma-item">
+                            <small>Topic Status</small>
+                            <select class="form-select sm" id="gateModalStatusSelect" onchange="GatePlannerEngine.onModalStatusChanged(this.value)">
+                                <option value="NOT_STARTED" ${topicStatus === 'NOT_STARTED' ? 'selected' : ''}>○ NOT STARTED</option>
+                                <option value="IN_PROGRESS" ${topicStatus === 'IN_PROGRESS' ? 'selected' : ''}>◐ IN PROGRESS</option>
+                                <option value="STUDY_COMPLETE" ${topicStatus === 'STUDY_COMPLETE' ? 'selected' : ''}>◑ STUDY COMPLETE</option>
+                                <option value="PYQ_PENDING" ${topicStatus === 'PYQ_PENDING' ? 'selected' : ''}>⏳ PYQ PENDING</option>
+                                <option value="COMPLETED" ${topicStatus === 'COMPLETED' ? 'selected' : ''}>● COMPLETED</option>
+                                <option value="REVISION_REQUIRED" ${topicStatus === 'REVISION_REQUIRED' ? 'selected' : ''}>🔁 REVISION REQUIRED</option>
+                            </select>
+                        </div>
+                        <div class="gma-item">
+                            <small>Reschedule Date (Sec 24)</small>
+                            <input type="date" class="form-input sm" id="gateModalRescheduleDate" value="${effectiveDate}" min="2026-10-01" max="2027-01-31">
                         </div>
                     </div>
-                    <div class="gate-ws-meta-group">
-                        <div class="gate-timer-box">
-                            <span class="label">Question:</span>
-                            <span class="timer" id="gatePyqQuestionTimer">00:00</span>
+
+                    <!-- Subtopics breakdown -->
+                    ${Array.isArray(baseTopic.subtopics) && baseTopic.subtopics.length > 0 ? `
+                        <div class="gate-modal-subtopics-box">
+                            <div class="subtopics-title">Official Syllabus Breakdown:</div>
+                            <ul class="subtopics-list">
+                                ${baseTopic.subtopics.map(st => `<li>${this.escapeHtml(st)}</li>`).join('')}
+                            </ul>
                         </div>
-                        <div class="gate-timer-box">
-                            <span class="label">Total:</span>
-                            <span class="timer" id="gatePyqSessionTimer">00:00</span>
+                    ` : ''}
+
+                    <!-- WHAT TO DO Concrete Checklist (Section 12, 13) -->
+                    <div class="gate-modal-checklist-box">
+                        <div class="gm-checklist-heading">
+                            <span>WHAT TO DO CHECKLIST</span>
+                            <small>PYQs are solved from your handbook/resource as an action item.</small>
                         </div>
-                        <button class="btn-close-modal" onclick="GatePlannerEngine.closeWorkspaceModal()" title="Exit Workspace">✕</button>
+                        <div class="gm-tasks-list" id="gateModalTasksList">
+                            ${tasks.map((task, idx) => `
+                                <label class="gate-check-item ${task.completed || task.done ? 'checked' : ''}">
+                                    <input type="checkbox"
+                                        ${task.completed || task.done ? 'checked' : ''}
+                                        onchange="GatePlannerEngine.toggleTaskFromUI('${effectiveDate}', ${idx})">
+                                    <span>${this.escapeHtml(task.text)}</span>
+                                </label>
+                            `).join('')}
+                        </div>
+                    </div>
+
+                    <!-- Personal Study Notes (Section 24) -->
+                    <div class="gate-modal-notes-box">
+                        <label for="gateModalUserNotes" class="notes-lbl">Personal Study Notes & Formulas:</label>
+                        <textarea id="gateModalUserNotes" class="form-textarea" rows="3" placeholder="Key insights, tricky formulas, or handbook problem references...">${this.escapeHtml(userNotes)}</textarea>
                     </div>
                 </div>
 
-                <!-- Progress Tracker Strip -->
-                <div class="gate-ws-progress-strip">
-                    <div class="gate-ws-qindex">PYQ ${qNum} of ${totalQ}</div>
-                    <div class="gate-ws-bar-track">
-                        <div class="gate-ws-bar-fill" style="width: ${((qNum - 1) / totalQ) * 100}%"></div>
-                    </div>
-                    <div class="gate-ws-badges">
-                        <span class="gate-badge-year">GATE ${currentPyq.year || 2024} · ${currentPyq.session || 'Set 1'}</span>
-                        <span class="gate-badge-qnum">Q${currentPyq.questionNumber || qNum}</span>
-                        <span class="gate-badge-type">${typeBadge}</span>
-                        <span class="gate-badge-marks">${marks} Mark${marks > 1 ? 's' : ''}</span>
-                    </div>
-                </div>
-
-                <!-- Main Problem Workbench -->
-                <div class="gate-ws-body">
-                    <div class="gate-problem-card">
-                        <div class="gate-problem-text">
-                            ${this.escapeHtml(currentPyq.questionText).replace(/\n/g, '<br>')}
-                        </div>
-
-                        ${inputHtml}
-
-                        <!-- Answer Reveal & Solution Concept Drawer -->
-                        <div id="gateSolutionDrawer" style="display: none; margin-top: 18px;" class="gate-solution-box">
-                            <div class="gate-sol-header">
-                                <span class="gate-sol-badge">Verified Official Solution</span>
-                                <span class="gate-sol-ans">Correct Key: <b>${currentPyq.correctAnswer}</b></span>
-                            </div>
-                            <div class="gate-sol-body">
-                                ${this.escapeHtml(currentPyq.explanation || 'Step-by-step conceptual solution is being retrieved.').replace(/\n/g, '<br>')}
-                            </div>
-                        </div>
-
-                        <!-- Mistake Reason Form (Shown when user clicks Wrong) -->
-                        <div id="gateMistakeCapturePanel" style="display: none; margin-top: 18px;" class="gate-mistake-panel">
-                            <div class="gate-mistake-panel-title">
-                                <span>⚠️</span>
-                                <b>What caused this mistake? (Helps FORGE defend your weaknesses)</b>
-                            </div>
-                            <div class="gate-mistake-cats-grid">
-                                ${(typeof GATE_CONFIG !== 'undefined' ? GATE_CONFIG.MISTAKE_CATEGORIES : []).map((cat, idx) => `
-                                    <label class="gate-mistake-cat-chip" for="mcat_${idx}">
-                                        <input type="radio" name="gateMistakeCat" id="mcat_${idx}" value="${cat}" ${idx === 0 ? 'checked' : ''}>
-                                        <span>${cat}</span>
-                                    </label>
-                                `).join('')}
-                            </div>
-                            <div style="margin-top: 10px;">
-                                <input type="text" id="gateMistakeNotes" class="form-input" placeholder="Personal note / what went wrong (e.g. forgot context switch overhead or wrong waiting time formula)...">
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Footer Evaluation Bar -->
-                <div class="gate-ws-footer">
-                    <div class="gate-ws-confidence-box">
-                        <span class="conf-label">Confidence:</span>
-                        <select id="gatePyqConfidence" class="status-select" style="width: auto;">
-                            <option value="HIGH">High Confidence</option>
-                            <option value="MEDIUM" selected>Medium Confidence</option>
-                            <option value="LOW">Low / Guessing</option>
-                        </select>
-                        <button type="button" class="action-btn-ghost" id="btnRevealSolution" onclick="GatePlannerEngine.toggleSolutionDrawer()">
-                            <span>💡 Reveal Answer</span>
-                        </button>
-                    </div>
-
-                    <div class="gate-ws-eval-actions">
-                        <button type="button" class="btn-eval-pill correct" onclick="GatePlannerEngine.recordQuestionResult('CORRECT')">
-                            <span>✓ Correct</span>
-                        </button>
-                        <button type="button" class="btn-eval-pill wrong" onclick="GatePlannerEngine.handleWrongClicked()">
-                            <span>✗ Wrong</span>
-                        </button>
-                        <button type="button" class="btn-eval-pill skip" onclick="GatePlannerEngine.recordQuestionResult('SKIPPED')">
-                            <span>↷ Skip</span>
+                <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center;">
+                    <button type="button" class="btn-ghost-sm" onclick="GatePlannerEngine.closeTopicDetailModal()">
+                        Close
+                    </button>
+                    <div style="display: flex; gap: 8px;">
+                        <button type="button" class="btn-primary" onclick="GatePlannerEngine.saveModalChanges()">
+                            Save Changes ✓
                         </button>
                     </div>
                 </div>
             </div>
         `;
 
-        this.updateTimerDisplay();
+        modal.style.display = 'flex';
+        modal.classList.add('active');
+    },
+
+    closeTopicDetailModal() {
+        const modal = document.getElementById('gateTopicDetailModal');
+        if (modal) {
+            modal.style.display = 'none';
+            modal.classList.remove('active');
+        }
+        this.activeModalDate = null;
+        this.activeModalTopicId = null;
+    },
+
+    onModalStatusChanged(newStatus) {
+        if (this.activeModalTopicId && typeof Store !== 'undefined' && Store.setGateTopicStatus) {
+            Store.setGateTopicStatus(this.activeModalTopicId, newStatus);
+            this.renderPlannerPage();
+        }
+    },
+
+    saveModalChanges() {
+        const notesEl = document.getElementById('gateModalUserNotes');
+        const statusEl = document.getElementById('gateModalStatusSelect');
+        const dateEl = document.getElementById('gateModalRescheduleDate');
+
+        const newNotes = notesEl ? notesEl.value : '';
+        const newStatus = statusEl ? statusEl.value : 'NOT_STARTED';
+        const newPlannedDate = dateEl ? dateEl.value : null;
+
+        if (this.activeModalTopicId && typeof Store !== 'undefined' && Store.setGateTopicStatus) {
+            Store.setGateTopicStatus(this.activeModalTopicId, newStatus, newNotes);
+        }
+
+        if (this.activeModalDate && typeof Store !== 'undefined' && Store.updateGatePlanItem) {
+            Store.updateGatePlanItem(this.activeModalDate, {
+                status: newStatus,
+                userNotes: newNotes,
+                plannedDate: newPlannedDate || this.activeModalDate
+            });
+        }
+
+        this.closeTopicDetailModal();
+        this.renderPlannerPage();
+    },
+
+    // =========================================================================
+    // 10. INTERACTIVE CHECKLIST & STATUS CONTROLS (Section 15, 24)
+    // =========================================================================
+
+    toggleTaskFromUI(dateStr, taskIndex) {
+        if (typeof Store !== 'undefined' && Store.toggleGateTask) {
+            Store.toggleGateTask(dateStr, taskIndex);
+        }
+        this.renderTodayCard();
+        // Update calendar grid card if visible
+        const grid = document.getElementById('gateCalendarGrid');
+        if (grid) {
+            grid.innerHTML = this.renderCalendarMonthHtml(this.activeMonth);
+        }
+        // Update scoreboard
+        this.renderScoreboardInPlace();
+    },
+
+    setTopicStatusFromUI(topicId, newStatus) {
+        if (typeof Store !== 'undefined' && Store.setGateTopicStatus) {
+            Store.setGateTopicStatus(topicId, newStatus);
+        }
+        this.renderPlannerPage();
+    },
+
+    renderScoreboardInPlace() {
+        // Re-renders whole page to guarantee synchrony
+        this.renderPlannerPage();
+    },
+
+    validateAndReportCoverage() {
+        const result = this.validateCoverage();
+        if (result.isValid) {
+            if (typeof window !== 'undefined' && window.showToast) {
+                window.showToast('🛡️ GATE Plan Verified: 100% of topics and 123/123 calendar days covered!', 'success');
+            } else {
+                alert(`🛡️ GATE Plan Verified!\nTotal Topics: ${result.totalSyllabusTopics}\nPlanned Topics: ${result.plannedTopics}\nCalendar Days: ${result.filledCalendarDays}/123\nZero Missing Topics.`);
+            }
+        } else {
+            alert(`⚠️ Validation Alert:\nMissing topics: ${result.unplannedTopics}\nEmpty dates: ${Math.max(0, 123 - result.filledCalendarDays)}`);
+        }
+    },
+
+    refreshGate() {
+        this.renderPlannerPage();
+    },
+
+    // =========================================================================
+    // 11. HELPERS & FORMATTING
+    // =========================================================================
+
+    formatShortDate(dateStr) {
+        if (!dateStr) return '';
+        const parts = dateStr.split('-');
+        if (parts.length !== 3) return dateStr;
+        const day = parts[2];
+        const monthNames = { '10': 'OCT', '11': 'NOV', '12': 'DEC', '01': 'JAN' };
+        return `${day} ${monthNames[parts[1]] || parts[1]}`;
+    },
+
+    formatFullDate(dateStr) {
+        if (!dateStr) return '';
+        const d = new Date(dateStr + 'T00:00:00');
+        if (isNaN(d.getTime())) return dateStr;
+        const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+        return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`;
+    },
+
+    formatStatusLabel(status) {
+        switch (status) {
+            case 'COMPLETED': return '● COMPLETED';
+            case 'IN_PROGRESS': return '◐ IN PROGRESS';
+            case 'STUDY_COMPLETE': return '◑ STUDY DONE';
+            case 'PYQ_PENDING': return '⏳ PYQ PENDING';
+            case 'REVISION_REQUIRED': return '🔁 REVISION';
+            case 'NOT_STARTED':
+            default: return '○ NOT STARTED';
+        }
     },
 
     escapeHtml(str) {
@@ -728,615 +975,16 @@ const GatePlannerEngine = {
         return String(str)
             .replace(/&/g, '&amp;')
             .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;');
-    },
-
-    toggleSolutionDrawer() {
-        const drawer = document.getElementById('gateSolutionDrawer');
-        if (drawer) {
-            drawer.style.display = drawer.style.display === 'none' ? 'block' : 'none';
-        }
-    },
-
-    handleWrongClicked() {
-        const panel = document.getElementById('gateMistakeCapturePanel');
-        const drawer = document.getElementById('gateSolutionDrawer');
-        if (drawer) drawer.style.display = 'block';
-
-        if (panel && panel.style.display === 'none') {
-            panel.style.display = 'block';
-            panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-            showToast('Select mistake category and click Confirm Wrong', 'warning');
-            
-            // Swap action buttons to confirm
-            const evalActions = document.querySelector('.gate-ws-eval-actions');
-            if (evalActions) {
-                evalActions.innerHTML = `
-                    <button type="button" class="btn-primary" style="background: var(--rose);" onclick="GatePlannerEngine.confirmWrongResult()">
-                        <span>Confirm & Log Wrong →</span>
-                    </button>
-                `;
-            }
-        } else {
-            this.confirmWrongResult();
-        }
-    },
-
-    confirmWrongResult() {
-        const selectedCat = document.querySelector('input[name="gateMistakeCat"]:checked')?.value || 'Conceptual mistake';
-        const notes = document.getElementById('gateMistakeNotes')?.value || '';
-        this.recordQuestionResult('WRONG', selectedCat, notes);
-    },
-
-    recordQuestionResult(status, mistakeType = null, notes = '') {
-        if (!this.activeSession) return;
-
-        const { pyqs, currentIndex } = this.activeSession;
-        const currentPyq = pyqs[currentIndex];
-        const timeTaken = Math.max(1, this.questionSeconds);
-        const confidence = document.getElementById('gatePyqConfidence')?.value || 'MEDIUM';
-
-        const isCorrect = (status === 'CORRECT');
-
-        const attemptRecord = {
-            id: 'gate_att_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
-            userId: (typeof SupabaseService !== 'undefined' && SupabaseService.getUserId) ? SupabaseService.getUserId() : 'local_user',
-            pyqId: currentPyq.id,
-            subjectId: currentPyq.subjectId,
-            topicId: currentPyq.topicId,
-            year: currentPyq.year,
-            attemptedAt: new Date().toISOString(),
-            status,
-            isCorrect,
-            timeTakenSeconds: timeTaken,
-            confidence,
-            mistakeType: isCorrect ? null : mistakeType,
-            notes,
-            revisionDueAt: isCorrect ? null : new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-            pyqSnapshot: currentPyq
-        };
-
-        // Persist attempt locally into Store
-        if (typeof Store !== 'undefined' && Store.recordGatePyqAttempt) {
-            Store.recordGatePyqAttempt(attemptRecord);
-        }
-
-        // Push to cloud sync engine if available
-        if (typeof window !== 'undefined' && window.SyncEngine && window.SyncEngine.pushGatePyqAttempt) {
-            window.SyncEngine.pushGatePyqAttempt(attemptRecord);
-        }
-
-        this.activeSession.results.push(attemptRecord);
-
-        // Move to next question or complete
-        if (currentIndex + 1 < pyqs.length) {
-            this.activeSession.currentIndex++;
-            this.renderCurrentQuestion();
-        } else {
-            this.completeSession();
-        }
-    },
-
-    completeSession() {
-        this.stopTimers();
-        if (!this.activeSession) return;
-
-        const results = this.activeSession.results || [];
-        const total = results.length;
-        const correct = results.filter(r => r.isCorrect).length;
-        const wrong = results.filter(r => !r.isCorrect && r.status !== 'SKIPPED').length;
-        const skipped = results.filter(r => r.status === 'SKIPPED').length;
-        const accuracy = total > 0 ? Math.round((correct / total) * 100) : 0;
-        const avgTimeSec = total > 0 ? Math.round(this.sessionSeconds / total) : 0;
-
-        const avgMins = Math.floor(avgTimeSec / 60);
-        const avgRemSec = avgTimeSec % 60;
-        const avgTimeFormatted = `${avgMins}m ${avgRemSec}s`;
-
-        // Detect prominent weaknesses from mistakes
-        const mistakeCounts = {};
-        results.filter(r => r.mistakeType).forEach(r => {
-            mistakeCounts[r.mistakeType] = (mistakeCounts[r.mistakeType] || 0) + 1;
-        });
-        const detectedWeakness = Object.keys(mistakeCounts).length > 0
-            ? Object.entries(mistakeCounts).sort((a, b) => b[1] - a[1]).map(e => `${e[0]} (${e[1]})`).join(', ')
-            : 'None detected';
-
-        // Auto-save session into Store.studySessions
-        if (typeof Store !== 'undefined' && Store.saveStudySession) {
-            const sessionRecord = {
-                id: 'sess_' + Date.now(),
-                date: (typeof DateUtils !== 'undefined') ? DateUtils.todayIST() : new Date().toISOString().split('T')[0],
-                subject: `GATE: ${this.activeSession.subjectName}`,
-                topic: this.activeSession.topicName,
-                activeSeconds: this.sessionSeconds,
-                breakSeconds: 0,
-                cameraEnabled: false,
-                presenceRate: 100,
-                aiInsight: `Completed ${total} GATE PYQs on ${this.activeSession.topicName}. Accuracy: ${accuracy}%. Average solving speed: ${avgTimeFormatted}.`,
-                startTime: new Date(this.activeSession.startTime).toTimeString().substring(0, 5),
-                endTime: new Date().toTimeString().substring(0, 5)
-            };
-            Store.saveStudySession(sessionRecord);
-        }
-
-        // Render Summary Modal
-        const modal = document.getElementById('gatePyqWorkspaceModal');
-        if (!modal) return;
-
-        const wrongAttempts = results.filter(r => !r.isCorrect && r.status !== 'SKIPPED');
-
-        modal.innerHTML = `
-            <div class="modal-window gate-summary-window">
-                <div class="gate-summary-header">
-                    <span class="gate-summary-eyebrow">⚡ FORGE GATE ENGINE</span>
-                    <h2 class="gate-summary-title">GATE SESSION COMPLETE</h2>
-                    <p class="gate-summary-sub">${this.activeSession.subjectName} → ${this.activeSession.topicName}</p>
-                </div>
-
-                <div class="gate-summary-metrics-grid">
-                    <div class="gate-sm-card">
-                        <span class="sm-label">Total Questions</span>
-                        <span class="sm-val">${total}</span>
-                    </div>
-                    <div class="gate-sm-card">
-                        <span class="sm-label">Correct</span>
-                        <span class="sm-val success">${correct}</span>
-                    </div>
-                    <div class="gate-sm-card">
-                        <span class="sm-label">Wrong</span>
-                        <span class="sm-val danger">${wrong}</span>
-                    </div>
-                    <div class="gate-sm-card">
-                        <span class="sm-label">Skipped</span>
-                        <span class="sm-val muted">${skipped}</span>
-                    </div>
-                    <div class="gate-sm-card">
-                        <span class="sm-label">Accuracy</span>
-                        <span class="sm-val ${accuracy >= 80 ? 'success' : 'warning'}">${accuracy}%</span>
-                    </div>
-                    <div class="gate-sm-card">
-                        <span class="sm-label">Average Time</span>
-                        <span class="sm-val">${avgTimeFormatted}</span>
-                    </div>
-                </div>
-
-                <div class="gate-summary-insights">
-                    <div class="gate-insight-item">
-                        <b>Weakness Detected:</b>
-                        <span>${detectedWeakness}</span>
-                    </div>
-                    <div class="gate-insight-item">
-                        <b>Next Action:</b>
-                        <span>${accuracy < 80 ? `Revise ${this.activeSession.topicName} core formulas and re-solve 5 targeted PYQs.` : `Great mastery (${accuracy}%)! Move forward to next high-priority GATE topic.`}</span>
-                    </div>
-                </div>
-
-                ${wrongAttempts.length > 0 ? `
-                    <div class="gate-mistake-bank-callout">
-                        <div>
-                            <h4 style="margin: 0 0 4px 0; color: #fff;">🛡️ Add to Mistake Bank</h4>
-                            <p style="margin: 0; font-size: 13px; color: var(--text-secondary);">
-                                Synchronize ${wrongAttempts.length} wrong answer(s) into your authentic FORGE Mistake Bank for spaced revision.
-                            </p>
-                        </div>
-                        <button type="button" class="btn-primary" id="btnAddMistakesBankDirect" onclick="GatePlannerEngine.addSessionMistakesToBank()">
-                            <span>＋ Add ${wrongAttempts.length} Mistakes to Mistake Bank</span>
-                        </button>
-                    </div>
-                ` : ''}
-
-                <div class="gate-summary-footer">
-                    <button type="button" class="btn-primary" onclick="GatePlannerEngine.finishAndCloseWorkspace()">
-                        <span>✓ Finish & Update Planner</span>
-                    </button>
-                </div>
-            </div>
-        `;
-    },
-
-    addSessionMistakesToBank() {
-        if (!this.activeSession) return;
-        const wrongAttempts = (this.activeSession.results || []).filter(r => !r.isCorrect && r.status !== 'SKIPPED');
-
-        let addedCount = 0;
-        wrongAttempts.forEach(att => {
-            const pyq = att.pyqSnapshot || {};
-            const entry = {
-                question: pyq.questionText || 'GATE PYQ Question',
-                subject: `GATE: ${pyq.subjectName || this.activeSession.subjectName}`,
-                topic: pyq.topicName || this.activeSession.topicName,
-                source: `GATE ${pyq.year || 2024} ${pyq.session || 'Set 1'} Q${pyq.questionNumber || ''}`,
-                date: (typeof DateUtils !== 'undefined') ? DateUtils.todayIST() : new Date().toISOString().split('T')[0],
-                userAnswer: 'Attempt marked wrong',
-                correctAnswer: pyq.correctAnswer || 'See solution',
-                explanation: pyq.explanation || '',
-                mistakeType: att.mistakeType || 'Conceptual mistake',
-                personalNote: att.notes || '',
-                revisitDate: att.revisionDueAt || (typeof DateUtils !== 'undefined' ? DateUtils.todayIST() : '')
-            };
-
-            if (typeof Store !== 'undefined' && Store.addMistake) {
-                Store.addMistake(entry);
-                addedCount++;
-            }
-        });
-
-        showToast(`Added ${addedCount} mistake(s) to Mistake Bank!`, 'success');
-        const calloutBtn = document.getElementById('btnAddMistakesBankDirect');
-        if (calloutBtn) {
-            calloutBtn.disabled = true;
-            calloutBtn.textContent = '✓ Added to Mistake Bank';
-        }
-    },
-
-    finishAndCloseWorkspace() {
-        this.closeWorkspaceModal();
-        this.activeSession = null;
-        showToast('GATE Progress & Priority Scores updated successfully!', 'success');
-
-        // Re-render Today Directive and GATE view if active
-        this.renderTodayCard();
-        if (typeof window.App !== 'undefined' && window.App.activeView === 'gate') {
-            this.renderPlannerPage();
-        }
-    },
-
-    // =========================================================================
-    // 4. GATE PLANNER FULL VIEW (Section 16, 17, 18)
-    // =========================================================================
-
-    renderPlannerPage() {
-        const container = document.getElementById('view-gate');
-        if (!container) return;
-
-        const subjectPriorities = this.calculateSubjectPriorities();
-        const topicPriorities = this.calculateTopicPriorities();
-        const attempts = (typeof Store !== 'undefined' && Store.getGatePyqAttempts) ? Store.getGatePyqAttempts() : [];
-        const allPyqs = this.getAllPyqs();
-
-        const totalPyqs = allPyqs.length;
-        const totalAttempted = attempts.length;
-        const totalCorrect = attempts.filter(a => a.isCorrect).length;
-        const totalWrong = attempts.filter(a => !a.isCorrect && a.status !== 'SKIPPED').length;
-        const totalAccuracy = totalAttempted > 0 ? Math.round((totalCorrect / totalAttempted) * 100) : 0;
-        const masteredTopics = topicPriorities.filter(t => t.isMastered).length;
-        const weakTopics = topicPriorities.filter(t => t.attemptedCount > 0 && t.accuracy < 70).length;
-        const revisionDueTopics = topicPriorities.filter(t => t.revisionDue >= 70).length;
-
-        const directive = this.getTonightDirective();
-
-        container.innerHTML = `
-            <div class="gate-planner-header">
-                <div>
-                    <span class="gate-hero-pill">🎓 FORGE GATE 2027 · PYQ-FIRST STUDY ENGINE</span>
-                    <h2 class="gate-view-title">GATE 2027 Study Planner & Command</h2>
-                    <p class="gate-view-desc">
-                        Official syllabus boundaries + multi-year historical paper analysis + your real PYQ performance.
-                        Every study block executes directly into targeted PYQs.
-                    </p>
-                </div>
-                <div class="gate-header-action-row">
-                    <button class="action-btn-ghost" onclick="GatePlannerEngine.renderPlannerPage()">
-                        <span>🔄 Refresh</span>
-                    </button>
-                    <button class="btn-primary" onclick="GatePlannerEngine.startPyqSession('${directive.subjectId}', '${directive.topicId}', 8)">
-                        <span>▶ Start Tonight's Session</span>
-                    </button>
-                </div>
-            </div>
-
-            <!-- Top Metric Scoreboard -->
-            <div class="gate-stats-grid">
-                <div class="gate-stat-card">
-                    <div class="gs-label">PYQ Solved</div>
-                    <div class="gs-val accent">${totalAttempted} / ${totalPyqs}</div>
-                    <div class="gs-sub">${Math.round((totalAttempted / Math.max(1, totalPyqs)) * 100)}% overall coverage</div>
-                </div>
-                <div class="gate-stat-card">
-                    <div class="gs-label">Overall Accuracy</div>
-                    <div class="gs-val ${totalAccuracy >= 80 ? 'success' : 'warning'}">${totalAccuracy}%</div>
-                    <div class="gs-sub">${totalCorrect} correct · ${totalWrong} mistakes</div>
-                </div>
-                <div class="gate-stat-card">
-                    <div class="gs-label">Mastered Topics</div>
-                    <div class="gs-val success">${masteredTopics} / ${topicPriorities.length}</div>
-                    <div class="gs-sub">≥85% accuracy achieved</div>
-                </div>
-                <div class="gate-stat-card">
-                    <div class="gs-label">Weak Topics</div>
-                    <div class="gs-val danger">${weakTopics}</div>
-                    <div class="gs-sub">Accuracy &lt; 70% or errors</div>
-                </div>
-                <div class="gate-stat-card">
-                    <div class="gs-label">Revision Due</div>
-                    <div class="gs-val warning">${revisionDueTopics}</div>
-                    <div class="gs-sub">Scheduled spaced review</div>
-                </div>
-            </div>
-
-            <!-- Today's GATE Hero Directive Card -->
-            <div style="margin-bottom: 24px;">
-                <div class="section-title-wrap">
-                    <h3>⚡ Today's Execution Directive</h3>
-                    <small>Calculated from historical GATE trends + your actual accuracy</small>
-                </div>
-                <div id="gatePlannerHeroDirective">
-                    <div class="gate-directive-card">
-                        <div class="gate-directive-header">
-                            <div class="gate-dir-eyebrow">
-                                <span class="gate-pulse-dot"></span>
-                                <span>RECOMMENDED TONIGHT · 10:30 PM – 12:00 AM</span>
-                            </div>
-                            <span class="gate-time-slot">90 Minutes Block</span>
-                        </div>
-                        <div class="gate-directive-body">
-                            <div class="gate-dir-subj-row">
-                                <span class="gate-dir-subj">${directive.subject.toUpperCase()}</span>
-                                <span class="gate-dir-arrow">→</span>
-                                <span class="gate-dir-topic">${directive.topic}</span>
-                            </div>
-                            <div class="gate-dir-target-strip">
-                                <div class="gate-target-item">
-                                    <span class="gt-label">Objective</span>
-                                    <span class="gt-val">Solve 8 PYQs</span>
-                                </div>
-                                <div class="gate-target-item">
-                                    <span class="gt-label">Target Accuracy</span>
-                                    <span class="gt-val">≥ 80%</span>
-                                </div>
-                                <div class="gate-target-item">
-                                    <span class="gt-label">Priority Score</span>
-                                    <span class="gt-val accent">${directive.priorityScore} / 100</span>
-                                </div>
-                            </div>
-                            <div class="gate-dir-reason-box">
-                                <span class="gate-reason-icon">💡</span>
-                                <div class="gate-reason-content">
-                                    <b>Reason:</b> ${directive.reason}
-                                </div>
-                            </div>
-                        </div>
-                        <div class="gate-directive-actions">
-                            <button class="btn-primary" onclick="GatePlannerEngine.startPyqSession('${directive.subjectId}', '${directive.topicId}', 8)">
-                                <span>▶ START PYQ SESSION</span>
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- 1. Subject Priority Grid (Section 18) -->
-            <div style="margin-bottom: 32px;">
-                <div class="section-title-wrap">
-                    <h3>📊 Subject Priority Matrix</h3>
-                    <small>FORGE study-planning heuristic (not a prediction of GATE 2027 paper)</small>
-                </div>
-                <div class="gate-subjects-grid">
-                    ${subjectPriorities.map(subj => `
-                        <div class="gate-subj-card">
-                            <div class="gsc-top">
-                                <div class="gsc-icon-name">
-                                    <span class="gsc-icon">${subj.icon}</span>
-                                    <div>
-                                        <div class="gsc-name">${subj.name}</div>
-                                        <div class="gsc-sub">${subj.topicsCount} Topics · ${subj.totalPyqs} PYQs</div>
-                                    </div>
-                                </div>
-                                <span class="gate-priority-badge ${subj.priorityLevel.toLowerCase()}">${subj.priorityLevel}</span>
-                            </div>
-
-                            <div class="gsc-metrics">
-                                <div class="gsc-row">
-                                    <span>Historical Weight:</span>
-                                    <b>${subj.historicalWeight}%</b>
-                                </div>
-                                <div class="gsc-row">
-                                    <span>Recent Trend:</span>
-                                    <b>${subj.recentAvgMarks} Marks / Paper</b>
-                                </div>
-                                <div class="gsc-row">
-                                    <span>Your Accuracy:</span>
-                                    <b class="${subj.accuracy >= 80 ? 'success' : subj.attemptedCount === 0 ? 'muted' : 'warning'}">${subj.attemptedCount > 0 ? `${subj.accuracy}%` : 'Untested'}</b>
-                                </div>
-                                <div class="gsc-row">
-                                    <span>PYQs Remaining:</span>
-                                    <b>${subj.remainingPyqs}</b>
-                                </div>
-                                <div class="gsc-row">
-                                    <span>Revision Status:</span>
-                                    <b class="${subj.revisionStatus === 'DUE' ? 'danger' : 'success'}">${subj.revisionStatus}</b>
-                                </div>
-                                <div class="gsc-row" style="border-top: 1px solid var(--border-subtle); padding-top: 6px; margin-top: 4px;">
-                                    <span>Priority Score:</span>
-                                    <b class="accent">${subj.priorityScore} / 100</b>
-                                </div>
-                            </div>
-
-                            <button class="btn-primary gsc-btn" onclick="GatePlannerEngine.startPyqSession('${subj.id}', null, 8)">
-                                <span>▶ START PYQs</span>
-                            </button>
-                        </div>
-                    `).join('')}
-                </div>
-            </div>
-
-            <!-- 2. Historical Paper Analysis View (Section 17) -->
-            <div style="margin-bottom: 32px;">
-                <div class="section-title-wrap">
-                    <h3>📜 Historical Paper Analysis</h3>
-                    <small>Historical distribution — not a guarantee of GATE 2027</small>
-                </div>
-                <div class="gate-historical-box">
-                    <div class="gate-hist-year-tabs">
-                        <button class="gate-year-tab ${this.activeHistoricalYear === 'all' ? 'active' : ''}" onclick="GatePlannerEngine.setHistoricalYear('all')">All Years (2021–2026)</button>
-                        <button class="gate-year-tab ${this.activeHistoricalYear === '2026' ? 'active' : ''}" onclick="GatePlannerEngine.setHistoricalYear('2026')">2026</button>
-                        <button class="gate-year-tab ${this.activeHistoricalYear === '2025' ? 'active' : ''}" onclick="GatePlannerEngine.setHistoricalYear('2025')">2025</button>
-                        <button class="gate-year-tab ${this.activeHistoricalYear === '2024' ? 'active' : ''}" onclick="GatePlannerEngine.setHistoricalYear('2024')">2024</button>
-                        <button class="gate-year-tab ${this.activeHistoricalYear === '2023' ? 'active' : ''}" onclick="GatePlannerEngine.setHistoricalYear('2023')">2023</button>
-                        <button class="gate-year-tab ${this.activeHistoricalYear === '2022' ? 'active' : ''}" onclick="GatePlannerEngine.setHistoricalYear('2022')">2022</button>
-                        <button class="gate-year-tab ${this.activeHistoricalYear === '2021' ? 'active' : ''}" onclick="GatePlannerEngine.setHistoricalYear('2021')">2021</button>
-                    </div>
-
-                    <div class="gate-hist-bars-container" id="gateHistBarsContainer">
-                        ${this.renderHistoricalBarsHtml()}
-                    </div>
-                </div>
-            </div>
-
-            <!-- 3. Topic Priority Ranking Table -->
-            <div style="margin-bottom: 32px;">
-                <div class="section-title-wrap">
-                    <h3>🎯 Topic Priority Queue & Adaptive Ranking</h3>
-                    <small>Top ranked topics are automatically scheduled into your daily time blocks</small>
-                </div>
-                <div class="gate-table-wrapper">
-                    <table class="gate-priority-table">
-                        <thead>
-                            <tr>
-                                <th>Subject</th>
-                                <th>Topic</th>
-                                <th>Priority Score</th>
-                                <th>Why Scheduled?</th>
-                                <th>Your Accuracy</th>
-                                <th>Coverage</th>
-                                <th>Action</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${topicPriorities.slice(0, 15).map(top => `
-                                <tr>
-                                    <td><span class="gate-table-subj">${top.subjectName}</span></td>
-                                    <td><b>${top.name}</b></td>
-                                    <td><span class="gate-priority-score-pill">${top.priorityScore}</span></td>
-                                    <td class="gate-reason-cell">${top.reasons[0] || 'Curriculum progression'}</td>
-                                    <td>${top.attemptedCount > 0 ? `${top.accuracy}% (${top.attemptedCount} attempted)` : '<span style="color: var(--text-muted);">Untested</span>'}</td>
-                                    <td>${top.correctCount} / ${top.totalPyqs} solved</td>
-                                    <td>
-                                        <button class="btn-table-start" onclick="GatePlannerEngine.startPyqSession('${top.subjectId}', '${top.id}', 8)">
-                                            ▶ Start
-                                        </button>
-                                    </td>
-                                </tr>
-                            `).join('')}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-
-            <!-- 4. PYQ Mistake Categories Breakdown (Section 10) -->
-            <div style="margin-bottom: 32px;">
-                <div class="section-title-wrap">
-                    <h3>🛡️ Mistake Category Defense Breakdown</h3>
-                    <small>Tracked across all your GATE PYQ attempts to eliminate recurring error patterns</small>
-                </div>
-                ${this.renderMistakeBreakdownHtml()}
-            </div>
-        `;
-    },
-
-    setHistoricalYear(year) {
-        this.activeHistoricalYear = year;
-        const container = document.getElementById('gateHistBarsContainer');
-        if (container) {
-            container.innerHTML = this.renderHistoricalBarsHtml();
-        }
-        document.querySelectorAll('.gate-year-tab').forEach(b => {
-            b.classList.toggle('active', b.textContent.includes(year) || (year === 'all' && b.textContent.includes('All')));
-        });
-    },
-
-    renderHistoricalBarsHtml() {
-        const syllabus = (typeof GATE_SYLLABUS !== 'undefined') ? GATE_SYLLABUS : [];
-        const allWeightage = (typeof GATE_HISTORICAL_WEIGHTAGE !== 'undefined') ? GATE_HISTORICAL_WEIGHTAGE : [];
-
-        let papers = allWeightage;
-        if (this.activeHistoricalYear !== 'all') {
-            papers = allWeightage.filter(p => String(p.year) === String(this.activeHistoricalYear));
-        }
-
-        const subjectMarks = {};
-        syllabus.forEach(s => { subjectMarks[s.id] = 0; });
-
-        papers.forEach(p => {
-            syllabus.forEach(s => {
-                subjectMarks[s.id] += (p.marks?.[s.id] || 0);
-            });
-        });
-
-        const numPapers = Math.max(1, papers.length);
-        const avgList = syllabus.map(s => ({
-            id: s.id,
-            name: s.name,
-            icon: s.icon,
-            avgMarks: Math.round((subjectMarks[s.id] / numPapers) * 10) / 10
-        })).sort((a, b) => b.avgMarks - a.avgMarks);
-
-        const maxMarks = Math.max(1, ...avgList.map(a => a.avgMarks));
-
-        return `
-            <div class="gate-bars-list">
-                ${avgList.map(item => `
-                    <div class="gate-bar-row">
-                        <div class="gate-bar-label">
-                            <span>${item.icon}</span>
-                            <span>${item.name}</span>
-                        </div>
-                        <div class="gate-bar-track">
-                            <div class="gate-bar-fill" style="width: ${(item.avgMarks / maxMarks) * 100}%"></div>
-                        </div>
-                        <div class="gate-bar-val">${item.avgMarks} marks</div>
-                    </div>
-                `).join('')}
-            </div>
-            <div class="gate-bar-disclaimer">
-                ⚠️ ${GATE_CONFIG?.DISCLAIMER || 'Historical distribution — not a guarantee of GATE 2027'}
-            </div>
-        `;
-    },
-
-    renderMistakeBreakdownHtml() {
-        const attempts = (typeof Store !== 'undefined' && Store.getGatePyqAttempts) ? Store.getGatePyqAttempts() : [];
-        const cats = (typeof GATE_CONFIG !== 'undefined') ? GATE_CONFIG.MISTAKE_CATEGORIES : [];
-
-        const catCounts = {};
-        cats.forEach(c => { catCounts[c] = 0; });
-
-        attempts.forEach(a => {
-            if (a.mistakeType && catCounts[a.mistakeType] !== undefined) {
-                catCounts[a.mistakeType]++;
-            }
-        });
-
-        const totalMistakes = Object.values(catCounts).reduce((a, b) => a + b, 0);
-
-        return `
-            <div class="gate-mistake-breakdown-grid">
-                ${cats.map(cat => {
-                    const count = catCounts[cat] || 0;
-                    const pct = totalMistakes > 0 ? Math.round((count / totalMistakes) * 100) : 0;
-                    return `
-                        <div class="gate-m-cat-card">
-                            <div class="m-cat-header">
-                                <span class="m-cat-name">${cat}</span>
-                                <span class="m-cat-count">${count}</span>
-                            </div>
-                            <div class="m-cat-track">
-                                <div class="m-cat-fill" style="width: ${pct}%"></div>
-                            </div>
-                            <div class="m-cat-footer">${pct}% of recorded errors</div>
-                        </div>
-                    `;
-                }).join('')}
-            </div>
-        `;
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
     }
 };
 
+// Global exports
 if (typeof window !== 'undefined') {
     window.GatePlannerEngine = GatePlannerEngine;
 }
-
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = { GatePlannerEngine };
 }

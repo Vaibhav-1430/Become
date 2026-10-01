@@ -592,13 +592,13 @@ class AIStudyEngine {
                 if (lower.includes('gate') && (lower.includes('tonight') || lower.includes('study') || lower.includes('priority') || lower.includes('what should') || lower.includes('next'))) {
                     if (typeof GatePlannerEngine !== 'undefined') {
                         const dir = GatePlannerEngine.getTonightDirective();
-                        const fallbackReply = `🎓 **GATE Tonight's Recommended PYQ Mission (Deterministic FORGE Engine):**\n\n` +
-                            `• **Subject:** ${dir.subject.name}\n` +
-                            `• **Topic:** ${dir.topic.name}\n` +
-                            `• **Objective:** Solve ${dir.pyqTarget} PYQs with ≥${dir.targetAccuracy}% accuracy (${dir.suggestedDurationMinutes} mins)\n` +
+                        const fallbackReply = `🎓 **GATE Tonight's Recommended Study Plan (Syllabus-First FORGE Engine):**\n\n` +
+                            `• **Subject:** ${dir.subject?.name || dir.subjectName}\n` +
+                            `• **Topic:** ${dir.topic?.name || dir.topicName}\n` +
+                            `• **Objective:** ${dir.objective} (${dir.suggestedDurationMinutes || 90} mins)\n` +
                             `• **Why this topic?** ${dir.reason}\n` +
                             `• **Priority Score:** ${dir.priorityScore} / 100\n\n` +
-                            `👉 Open **GATE 2027 Planner** in navigation or Today's Command and click **START PYQ SESSION**.`;
+                            `👉 Open **GATE 2027 Planner** in navigation or Today's Command to view today's syllabus topic and checklist.`;
                         Store.addAiChatMessage('model', fallbackReply);
                         return;
                     }
@@ -614,13 +614,13 @@ class AIStudyEngine {
             if (lower.includes('gate') && (lower.includes('tonight') || lower.includes('study') || lower.includes('priority') || lower.includes('what should') || lower.includes('next'))) {
                 if (typeof GatePlannerEngine !== 'undefined') {
                     const dir = GatePlannerEngine.getTonightDirective();
-                    const fallbackReply = `🎓 **GATE Tonight's Recommended PYQ Mission (Deterministic FORGE Engine):**\n\n` +
-                        `• **Subject:** ${dir.subject.name}\n` +
-                        `• **Topic:** ${dir.topic.name}\n` +
-                        `• **Objective:** Solve ${dir.pyqTarget} PYQs with ≥${dir.targetAccuracy}% accuracy (${dir.suggestedDurationMinutes} mins)\n` +
+                    const fallbackReply = `🎓 **GATE Tonight's Recommended Study Plan (Syllabus-First FORGE Engine):**\n\n` +
+                        `• **Subject:** ${dir.subject?.name || dir.subjectName}\n` +
+                        `• **Topic:** ${dir.topic?.name || dir.topicName}\n` +
+                        `• **Objective:** ${dir.objective} (${dir.suggestedDurationMinutes || 90} mins)\n` +
                         `• **Why this topic?** ${dir.reason}\n` +
                         `• **Priority Score:** ${dir.priorityScore} / 100\n\n` +
-                        `👉 Open **GATE 2027 Planner** in navigation or Today's Command and click **START PYQ SESSION**.`;
+                        `👉 Open **GATE 2027 Planner** in navigation or Today's Command to view today's syllabus topic and checklist.`;
                     Store.addAiChatMessage('model', fallbackReply);
                     return;
                 }

@@ -124,6 +124,12 @@ class StorageManager {
         this._initPromise = this.init();
     }
 
+    get state() {
+        if (!this.memoryState) this.memoryState = {};
+        if (!this.memoryState.gate) this.getGateState();
+        return this.memoryState;
+    }
+
     async init() {
         try {
             if (!this.memoryState) {
@@ -170,6 +176,17 @@ class StorageManager {
                         sessions: parsed.gym?.sessions || [],
                         activeSession: parsed.gym?.activeSession || null,
                         measurements: parsed.gym?.measurements || []
+                    },
+                    gate: {
+                        ...this.memoryState.gate,
+                        ...(parsed.gate || {}),
+                        planItems: { ...(this.memoryState.gate?.planItems || {}), ...(parsed.gate?.planItems || {}) },
+                        topicStatuses: { ...(this.memoryState.gate?.topicStatuses || {}), ...(parsed.gate?.topicStatuses || {}) },
+                        attempts: { ...(this.memoryState.gate?.attempts || {}), ...(parsed.gate?.attempts || {}) },
+                        topicProgress: { ...(this.memoryState.gate?.topicProgress || {}), ...(parsed.gate?.topicProgress || {}) },
+                        subjectMastery: { ...(this.memoryState.gate?.subjectMastery || {}), ...(parsed.gate?.subjectMastery || {}) },
+                        customPyqs: Array.isArray(parsed.gate?.customPyqs) ? parsed.gate.customPyqs : (this.memoryState.gate?.customPyqs || []),
+                        settings: { ...(this.memoryState.gate?.settings || {}), ...(parsed.gate?.settings || {}) }
                     }
                 };
             }
@@ -2940,23 +2957,28 @@ class StorageManager {
     // =========================================================================
 
     getGateState() {
+        if (!this.memoryState) this.memoryState = {};
         if (!this.memoryState.gate) {
-            this.memoryState.gate = {
-                attempts: {},
-                topicProgress: {},
-                subjectMastery: {},
-                customPyqs: [],
-                settings: {
-                    targetPyqsPerSession: 8,
-                    sessionDurationMinutes: 90,
-                    weights: {
-                        historicalFrequency: 0.25,
-                        recentFrequency: 0.20,
-                        recurrence: 0.15,
-                        userWeakness: 0.20,
-                        revisionDue: 0.10,
-                        pyqCoverageGap: 0.10
-                    }
+            this.memoryState.gate = {};
+        }
+        const gate = this.memoryState.gate;
+        if (!gate.planItems) gate.planItems = {};
+        if (!gate.topicStatuses) gate.topicStatuses = {};
+        if (!gate.attempts) gate.attempts = {};
+        if (!gate.topicProgress) gate.topicProgress = {};
+        if (!gate.subjectMastery) gate.subjectMastery = {};
+        if (!Array.isArray(gate.customPyqs)) gate.customPyqs = [];
+        if (!gate.settings) {
+            gate.settings = {
+                targetPyqsPerSession: 8,
+                sessionDurationMinutes: 90,
+                weights: {
+                    historicalFrequency: 0.25,
+                    recentFrequency: 0.20,
+                    recurrence: 0.15,
+                    userWeakness: 0.20,
+                    revisionDue: 0.10,
+                    pyqCoverageGap: 0.10
                 }
             };
         }
@@ -3033,7 +3055,7 @@ class StorageManager {
 
     getGateCustomPyqs() {
         const gate = this.getGateState();
-        return gate.customPyqs || [];
+        return Array.isArray(gate.customPyqs) ? gate.customPyqs : [];
     }
 
     addGateCustomPyq(pyq) {
@@ -3059,6 +3081,238 @@ class StorageManager {
             }
         });
         return count;
+    }
+
+    // =========================================================================
+    // SYLLABUS-FIRST GATE 2027 STUDY PLANNER PERSISTENCE METHODS
+    // =========================================================================
+
+    getGateCalendarDefault() {
+        const cal = (typeof window !== 'undefined' ? (window.GATE_DEDICATED_CALENDAR_DEFAULT || window.GATE_DATA_2027?.calendar) : null) ||
+                    (typeof global !== 'undefined' ? (global.GATE_DEDICATED_CALENDAR_DEFAULT || global.GATE_DATA_2027?.calendar) : null);
+        if (Array.isArray(cal) && cal.length > 0) {
+            return cal;
+        }
+        try {
+            const gateData = require('../data/gate-data.js');
+            return gateData.GATE_DEDICATED_CALENDAR_DEFAULT || gateData.calendar || [];
+        } catch (e) {
+            return [];
+        }
+    }
+
+    getGatePlanItems() {
+        const defaults = this.getGateCalendarDefault();
+        const gate = this.getGateState();
+        const overrides = gate.planItems || {};
+        const topicStatuses = gate.topicStatuses || {};
+
+        return defaults.map(def => {
+            const date = def.date;
+            const ov = overrides[date] || {};
+            const topicOv = topicStatuses[def.topicId] || {};
+
+            let tasks = def.tasks ? def.tasks.map(t => ({ ...t })) : [];
+            if (Array.isArray(ov.tasks) && ov.tasks.length === tasks.length) {
+                tasks = ov.tasks.map((t, idx) => ({
+                    ...tasks[idx],
+                    ...t
+                }));
+            }
+
+            const status = ov.status || topicOv.status || def.status || 'NOT_STARTED';
+            const userNotes = ov.userNotes !== undefined ? ov.userNotes : (topicOv.notes || def.userNotes || '');
+            const plannedDate = ov.plannedDate || def.plannedDate || date;
+
+            return {
+                ...def,
+                ...ov,
+                tasks,
+                status,
+                userNotes,
+                plannedDate,
+                originalDate: def.originalDate || date
+            };
+        });
+    }
+
+    getGatePlanItemByDate(dateStr) {
+        const items = this.getGatePlanItems();
+        return items.find(item => item.date === dateStr || item.plannedDate === dateStr) || null;
+    }
+
+    updateGatePlanItem(dateStr, patch) {
+        if (!dateStr || !patch) return null;
+        const gate = this.getGateState();
+        if (!gate.planItems) gate.planItems = {};
+        
+        const existing = gate.planItems[dateStr] || {};
+        gate.planItems[dateStr] = {
+            ...existing,
+            ...patch,
+            updatedAt: new Date().toISOString()
+        };
+
+        const defaultItem = this.getGateCalendarDefault().find(i => i.date === dateStr);
+        const topicId = patch.topicId || existing.topicId || (defaultItem ? defaultItem.topicId : null);
+        if (topicId && patch.status) {
+            if (!gate.topicStatuses) gate.topicStatuses = {};
+            gate.topicStatuses[topicId] = {
+                ...(gate.topicStatuses[topicId] || {}),
+                status: patch.status,
+                updatedAt: new Date().toISOString()
+            };
+        }
+
+        this.save(true);
+        return this.getGatePlanItemByDate(dateStr);
+    }
+
+    toggleGateTask(dateStr, taskIndex, completed) {
+        const item = this.getGatePlanItemByDate(dateStr);
+        if (!item || !item.tasks || !item.tasks[taskIndex]) return null;
+
+        const tasks = item.tasks.map((t, idx) => {
+            if (idx === taskIndex) {
+                return { ...t, completed: typeof completed === 'boolean' ? completed : !t.completed };
+            }
+            return { ...t };
+        });
+
+        const completedCount = tasks.filter(t => t.completed).length;
+        let newStatus = item.status;
+        if (completedCount === tasks.length && tasks.length > 0) {
+            newStatus = 'COMPLETED';
+        } else if (completedCount > 0) {
+            newStatus = 'IN_PROGRESS';
+        } else if (newStatus === 'COMPLETED' || newStatus === 'IN_PROGRESS') {
+            newStatus = 'NOT_STARTED';
+        }
+
+        return this.updateGatePlanItem(dateStr, {
+            tasks,
+            status: newStatus
+        });
+    }
+
+    setGateTopicStatus(topicId, status, notes) {
+        if (!topicId) return null;
+        const gate = this.getGateState();
+        if (!gate.topicStatuses) gate.topicStatuses = {};
+
+        const existing = gate.topicStatuses[topicId] || {};
+        const updated = {
+            ...existing,
+            status: status || existing.status || 'NOT_STARTED',
+            notes: notes !== undefined ? notes : (existing.notes || ''),
+            updatedAt: new Date().toISOString()
+        };
+        gate.topicStatuses[topicId] = updated;
+
+        const defaults = this.getGateCalendarDefault();
+        defaults.filter(d => d.topicId === topicId).forEach(d => {
+            if (!gate.planItems) gate.planItems = {};
+            gate.planItems[d.date] = {
+                ...(gate.planItems[d.date] || {}),
+                status: updated.status,
+                userNotes: updated.notes
+            };
+        });
+
+        this.save(true);
+        return updated;
+    }
+
+    getGateTopicStatus(topicId) {
+        const gate = this.getGateState();
+        return gate.topicStatuses?.[topicId] || null;
+    }
+
+    getGateSyllabusProgress() {
+        const planItems = this.getGatePlanItems();
+        let totalTopics = 81;
+        let subjectsList = [];
+
+        const gd = (typeof window !== 'undefined' && window.GATE_DATA_2027)
+            ? window.GATE_DATA_2027
+            : (typeof global !== 'undefined' && global.GATE_DATA_2027
+                ? global.GATE_DATA_2027
+                : null);
+
+        if (gd) {
+            subjectsList = gd.subjects || gd.GATE_SYLLABUS || [];
+            totalTopics = (gd.topics || []).length || subjectsList.flatMap(s => s.topics || []).length || 81;
+        } else {
+            try {
+                const gateData = require('../data/gate-data.js');
+                subjectsList = gateData.subjects || gateData.GATE_SYLLABUS || [];
+                totalTopics = (gateData.topics || []).length || subjectsList.flatMap(s => s.topics || []).length || 81;
+            } catch (e) {
+                totalTopics = 81;
+            }
+        }
+
+        const gate = this.getGateState();
+        const topicStatuses = gate.topicStatuses || {};
+
+        let completedTopics = 0;
+        let inProgressTopics = 0;
+        let pyqPendingTopics = 0;
+        let revisionRequiredTopics = 0;
+        let highPriorityTotal = 0;
+        let highPriorityCompleted = 0;
+
+        const allTopics = [];
+        subjectsList.forEach(s => {
+            (s.topics || []).forEach(t => {
+                allTopics.push({ ...t, subjectId: s.id });
+            });
+        });
+
+        allTopics.forEach(top => {
+            const st = topicStatuses[top.id]?.status || 'NOT_STARTED';
+            const isHigh = top.importance === 'HIGH' || top.importance === 'HIGH-MEDIUM';
+            if (isHigh) highPriorityTotal++;
+
+            if (st === 'COMPLETED') {
+                completedTopics++;
+                if (isHigh) highPriorityCompleted++;
+            } else if (st === 'IN_PROGRESS' || st === 'STUDY_COMPLETE') {
+                inProgressTopics++;
+            } else if (st === 'PYQ_PENDING') {
+                pyqPendingTopics++;
+            } else if (st === 'REVISION_REQUIRED') {
+                revisionRequiredTopics++;
+            }
+        });
+
+        const totalCalendarDays = planItems.length || 123;
+        const completedCalendarDays = planItems.filter(p => p.status === 'COMPLETED').length;
+
+        let completedSubjects = 0;
+        subjectsList.forEach(s => {
+            const subjTopics = s.topics || [];
+            if (subjTopics.length > 0 && subjTopics.every(t => (topicStatuses[t.id]?.status === 'COMPLETED'))) {
+                completedSubjects++;
+            }
+        });
+
+        const overallProgressPct = totalTopics > 0 ? Math.round((completedTopics / totalTopics) * 100) : 0;
+
+        return {
+            totalTopics,
+            completedTopics,
+            inProgressTopics,
+            pyqPendingTopics,
+            revisionRequiredTopics,
+            totalSubjects: subjectsList.length || 11,
+            completedSubjects,
+            totalCalendarDays,
+            completedCalendarDays,
+            highPriorityTotal,
+            highPriorityCompleted,
+            overallProgressPct
+        };
     }
 
     resetToDefault() {
@@ -3124,6 +3378,14 @@ class StorageManager {
                 activeSession: null,
                 measurements: [],
                 customExercises: []
+            },
+            gate: {
+                planItems: {},
+                topicStatuses: {},
+                attempts: {},
+                topicProgress: {},
+                subjectMastery: {},
+                customPyqs: []
             }
         };
         this.initDefaultGymSplit(true);
