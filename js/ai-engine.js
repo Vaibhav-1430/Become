@@ -71,12 +71,29 @@ class AIStudyEngine {
             context.module = 'Full-Stack Development';
             context.activeTech = String(tech).toUpperCase();
             context.currentTopic = `Full-Stack Track: ${tech}`;
+        } else if (currentView === 'gate') {
+            context.module = 'GATE 2027 Study Planner';
+            if (typeof GatePlannerEngine !== 'undefined') {
+                const directive = GatePlannerEngine.getTonightDirective();
+                context.currentTopic = `${directive.subject.name} → ${directive.topic.name}`;
+                context.gateDirective = directive;
+            }
         } else if (currentView === 'placement') {
             context.module = 'Placement Command Center';
             context.currentTopic = 'Core CS, System Design & Aptitude';
         } else {
             context.module = 'Adaptive AI Engine';
             context.currentTopic = 'Striver DSA & Full-Stack Development';
+        }
+
+        // GATE context
+        if (typeof GatePlannerEngine !== 'undefined') {
+            try {
+                context.gateSummary = GatePlannerEngine.getGateSummaryMetrics();
+                context.gateDirective = GatePlannerEngine.getTonightDirective();
+            } catch (gErr) {
+                console.warn('[AIEngine] GATE context error:', gErr);
+            }
         }
 
         // Authentic Workout & Lifestyle Context for AI
@@ -571,6 +588,21 @@ class AIStudyEngine {
                     Store.addAiChatMessage('model', data.reply);
                 }
             } else {
+                const lower = text.toLowerCase();
+                if (lower.includes('gate') && (lower.includes('tonight') || lower.includes('study') || lower.includes('priority') || lower.includes('what should') || lower.includes('next'))) {
+                    if (typeof GatePlannerEngine !== 'undefined') {
+                        const dir = GatePlannerEngine.getTonightDirective();
+                        const fallbackReply = `🎓 **GATE Tonight's Recommended PYQ Mission (Deterministic FORGE Engine):**\n\n` +
+                            `• **Subject:** ${dir.subject.name}\n` +
+                            `• **Topic:** ${dir.topic.name}\n` +
+                            `• **Objective:** Solve ${dir.pyqTarget} PYQs with ≥${dir.targetAccuracy}% accuracy (${dir.suggestedDurationMinutes} mins)\n` +
+                            `• **Why this topic?** ${dir.reason}\n` +
+                            `• **Priority Score:** ${dir.priorityScore} / 100\n\n` +
+                            `👉 Open **GATE 2027 Planner** in navigation or Today's Command and click **START PYQ SESSION**.`;
+                        Store.addAiChatMessage('model', fallbackReply);
+                        return;
+                    }
+                }
                 if (data.code === 'KEY_MISSING') {
                     Store.addAiChatMessage('model', "⚠️ Connect your Gemini API key in Settings → AI / Gemini to enable FORGE AI.");
                 } else {
@@ -578,6 +610,21 @@ class AIStudyEngine {
                 }
             }
         } catch (e) {
+            const lower = text.toLowerCase();
+            if (lower.includes('gate') && (lower.includes('tonight') || lower.includes('study') || lower.includes('priority') || lower.includes('what should') || lower.includes('next'))) {
+                if (typeof GatePlannerEngine !== 'undefined') {
+                    const dir = GatePlannerEngine.getTonightDirective();
+                    const fallbackReply = `🎓 **GATE Tonight's Recommended PYQ Mission (Deterministic FORGE Engine):**\n\n` +
+                        `• **Subject:** ${dir.subject.name}\n` +
+                        `• **Topic:** ${dir.topic.name}\n` +
+                        `• **Objective:** Solve ${dir.pyqTarget} PYQs with ≥${dir.targetAccuracy}% accuracy (${dir.suggestedDurationMinutes} mins)\n` +
+                        `• **Why this topic?** ${dir.reason}\n` +
+                        `• **Priority Score:** ${dir.priorityScore} / 100\n\n` +
+                        `👉 Open **GATE 2027 Planner** in navigation or Today's Command and click **START PYQ SESSION**.`;
+                    Store.addAiChatMessage('model', fallbackReply);
+                    return;
+                }
+            }
             Store.addAiChatMessage('model', "⚠️ AI temporarily unavailable. Your normal FORGE features are still working.");
         } finally {
             this.isTyping = false;
@@ -602,12 +649,17 @@ class AIStudyEngine {
                     type: "object",
                     properties: {
                         title: { type: "string", description: "Title of the study task" },
-                        category: { type: "string", enum: ["DSA", "DEV", "COLLEGE", "CORE_CS", "REVISION"] },
+                        category: { type: "string", enum: ["DSA", "DEV", "GATE", "COLLEGE", "CORE_CS", "REVISION"] },
                         startTime: { type: "string", description: "Start time in HH:MM format" },
                         endTime: { type: "string", description: "End time in HH:MM format" }
                     },
                     required: ["title", "category", "startTime", "endTime"]
                 }
+            },
+            {
+                name: "get_gate_directive",
+                description: "Get tonight's recommended GATE subject, topic, PYQ target, and priority rationale from the GATE Priority Engine.",
+                parameters: { type: "object", properties: {} }
             },
             {
                 name: "mark_task_for_revision",
@@ -676,6 +728,17 @@ class AIStudyEngine {
                 success: true,
                 summary: `DSA: ${profile.subjectPerformance.dsa.solved}/${profile.subjectPerformance.dsa.total} solved (${profile.subjectPerformance.dsa.percentage}%). Streak: ${profile.studyConsistency.currentStreak} days.`
             };
+        }
+
+        if (name === 'get_gate_directive') {
+            if (typeof GatePlannerEngine !== 'undefined') {
+                const dir = GatePlannerEngine.getTonightDirective();
+                return {
+                    success: true,
+                    summary: `Tonight's GATE Mission: ${dir.subject.name} → ${dir.topic.name}. Target: ${dir.pyqTarget} PYQs (≥${dir.targetAccuracy}%). Rationale: ${dir.reason}. Priority Score: ${dir.priorityScore}/100.`
+                };
+            }
+            return { success: false, summary: "GatePlannerEngine not initialized." };
         }
 
         return { success: false, summary: `Unknown tool "${name}".` };

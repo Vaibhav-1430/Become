@@ -69,7 +69,8 @@ const APP_CONFIG = {
         RECOVERY: 'RECOVERY',
         CREATINE: 'CREATINE',
         DEV: 'DEV',
-        AI_STUDY: 'AI_STUDY'
+        AI_STUDY: 'AI_STUDY',
+        GATE: 'GATE'
     },
 
     // Weekday routine

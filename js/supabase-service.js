@@ -377,7 +377,9 @@ const SupabaseService = {
                 prsRes,
                 placementDataRes,
                 internshipsRes,
-                aiSettingsRes
+                aiSettingsRes,
+                gateAttemptsRes,
+                gateTopicProgressRes
             ] = await Promise.all([
                 this.client.from('profiles').select('*').eq('id', userId).maybeSingle(),
                 this.client.from('study_tasks').select('*').eq('user_id', userId),
@@ -390,7 +392,9 @@ const SupabaseService = {
                 this.client.from('personal_records').select('*').eq('user_id', userId),
                 this.client.from('placement_hub_data').select('*').eq('user_id', userId).maybeSingle(),
                 this.client.from('internships').select('*').eq('user_id', userId),
-                this.client.from('ai_settings').select('*').eq('user_id', userId).maybeSingle()
+                this.client.from('ai_settings').select('*').eq('user_id', userId).maybeSingle(),
+                this.client.from('gate_pyq_attempts').select('*').eq('user_id', userId).order('attempted_at', { ascending: false }),
+                this.client.from('gate_topic_progress').select('*').eq('user_id', userId)
             ]);
 
             results.profile = profileRes?.data || null;
@@ -404,6 +408,8 @@ const SupabaseService = {
             results.placementHub = placementDataRes?.data || null;
             results.internships = internshipsRes?.data || [];
             results.aiSettings = aiSettingsRes?.data || null;
+            results.gateAttempts = gateAttemptsRes?.data || [];
+            results.gateTopicProgress = gateTopicProgressRes?.data || [];
 
             // Relational queries for Workout Sessions (exercises & sets)
             const workoutSessions = workoutSessionsRes?.data || [];
@@ -843,6 +849,69 @@ const SupabaseService = {
             return true;
         } catch (e) {
             console.warn('[SupabaseService] saveStudySession error:', e.message);
+            return false;
+        }
+    },
+
+    async saveGatePyqAttempt(attempt) {
+        const userId = this.getUserId();
+        if (!this.client || !userId || !attempt) return false;
+        try {
+            const row = {
+                user_id: userId,
+                pyq_id: attempt.pyqId || attempt.pyq_id,
+                subject_id: attempt.subjectId || attempt.subject_id,
+                topic_id: attempt.topicId || attempt.topic_id,
+                year: attempt.year || 2024,
+                attempted_at: attempt.attemptedAt || attempt.attempted_at || new Date().toISOString(),
+                status: attempt.status || 'ATTEMPTED',
+                is_correct: !!attempt.isCorrect,
+                time_taken_seconds: Number(attempt.timeTakenSeconds || 0),
+                confidence: attempt.confidence || 'MEDIUM',
+                mistake_type: attempt.mistakeType || null,
+                notes: attempt.notes || '',
+                revision_due_at: attempt.revisionDueAt || null,
+                created_at: attempt.createdAt || new Date().toISOString(),
+                updated_at: new Date().toISOString()
+            };
+
+            const { error } = await this.client.from('gate_pyq_attempts').upsert([row], {
+                onConflict: 'user_id, pyq_id, attempted_at'
+            });
+            if (error) throw error;
+            return true;
+        } catch (e) {
+            console.warn('[SupabaseService] saveGatePyqAttempt error:', e.message);
+            return false;
+        }
+    },
+
+    async saveGateTopicProgress(progress) {
+        const userId = this.getUserId();
+        if (!this.client || !userId || !progress) return false;
+        try {
+            const row = {
+                user_id: userId,
+                subject_id: progress.subjectId || progress.subject_id,
+                topic_id: progress.topicId || progress.topic_id,
+                total_attempted: Number(progress.totalAttempted || 0),
+                total_correct: Number(progress.totalCorrect || 0),
+                total_wrong: Number(progress.totalWrong || 0),
+                total_skipped: Number(progress.totalSkipped || 0),
+                accuracy_percent: Number(progress.accuracyPercent || 0),
+                mastery_percent: Number(progress.masteryPercent || 0),
+                last_practiced_at: progress.lastPracticedAt || new Date().toISOString(),
+                revision_due: !!progress.revisionDue,
+                updated_at: new Date().toISOString()
+            };
+
+            const { error } = await this.client.from('gate_topic_progress').upsert([row], {
+                onConflict: 'user_id, topic_id'
+            });
+            if (error) throw error;
+            return true;
+        } catch (e) {
+            console.warn('[SupabaseService] saveGateTopicProgress error:', e.message);
             return false;
         }
     },

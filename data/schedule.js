@@ -115,6 +115,39 @@ const ScheduleEngine = {
                     rescheduledTo: null,
                     interruptReason: null
                 });
+            } else if (block.category === 'GATE' || block.category === (APP_CONFIG.CATEGORIES && APP_CONFIG.CATEGORIES.GATE)) {
+                const dateTimes = DateUtils.getTaskDateTimes(dateStr, block.start, block.end);
+                let directive = null;
+                if (typeof GatePlannerEngine !== 'undefined' && GatePlannerEngine.getTonightDirective) {
+                    directive = GatePlannerEngine.getTonightDirective();
+                }
+                const subject = directive?.subject?.name || 'Operating Systems';
+                const topic = directive?.topic?.name || 'Process Scheduling';
+                const pyqCount = directive?.pyqTarget || 8;
+                const gateTitle = `🎓 GATE — ${subject} — ${topic} (${pyqCount} PYQs)`;
+
+                tasks.push({
+                    id: `task_${dateStr}_gate_session`,
+                    dateKey: dateStr,
+                    title: gateTitle,
+                    category: (APP_CONFIG.CATEGORIES && APP_CONFIG.CATEGORIES.GATE) || 'GATE',
+                    startTime: block.start,
+                    endTime: block.end,
+                    startISO: dateTimes.startISO,
+                    endISO: dateTimes.endISO,
+                    crossesMidnight: dateTimes.crossesMidnight,
+                    status: APP_CONFIG.TASK_STATUS.NOT_STARTED,
+                    isStudy: true,
+                    isBlock: true,
+                    gateDirective: directive,
+                    notes: directive ? `${directive.topic.name} • Target ${pyqCount} PYQs (≥${directive.targetAccuracy}%) • ${directive.reason}` : 'GATE 2027 PYQ Study Session',
+                    history: [
+                        { timestamp: DateUtils.nowISO(), action: 'CREATED', detail: 'Auto-generated GATE PYQ mission' }
+                    ],
+                    rescheduledFrom: null,
+                    rescheduledTo: null,
+                    interruptReason: null
+                });
             } else {
                 const dateTimes = DateUtils.getTaskDateTimes(dateStr, block.start, block.end);
                 tasks.push({
@@ -192,6 +225,44 @@ const ScheduleEngine = {
             rescheduledFrom: originalTask.id,
             rescheduledTo: null,
             interruptReason: reasonText
+        };
+    },
+
+    /**
+     * Deterministically generate a GATE PYQ session task
+     */
+    generateGateTask(dateStr, startTime = '22:30', endTime = '00:00') {
+        const dateTimes = DateUtils.getTaskDateTimes(dateStr, startTime, endTime);
+        let directive = null;
+        if (typeof GatePlannerEngine !== 'undefined' && GatePlannerEngine.getTonightDirective) {
+            directive = GatePlannerEngine.getTonightDirective();
+        }
+        const subject = directive?.subject?.name || 'Operating Systems';
+        const topic = directive?.topic?.name || 'Process Scheduling';
+        const pyqCount = directive?.pyqTarget || 8;
+        const gateTitle = `🎓 GATE — ${subject} — ${topic} (${pyqCount} PYQs)`;
+
+        return {
+            id: `task_${dateStr}_gate_session`,
+            dateKey: dateStr,
+            title: gateTitle,
+            category: (APP_CONFIG.CATEGORIES && APP_CONFIG.CATEGORIES.GATE) || 'GATE',
+            startTime: startTime,
+            endTime: endTime,
+            startISO: dateTimes.startISO,
+            endISO: dateTimes.endISO,
+            crossesMidnight: dateTimes.crossesMidnight,
+            status: APP_CONFIG.TASK_STATUS.NOT_STARTED,
+            isStudy: true,
+            isBlock: true,
+            gateDirective: directive,
+            notes: directive ? `${directive.topic.name} • Target ${pyqCount} PYQs (≥${directive.targetAccuracy}%) • ${directive.reason}` : 'GATE 2027 PYQ Study Session',
+            history: [
+                { timestamp: DateUtils.nowISO(), action: 'CREATED', detail: 'Auto-generated GATE PYQ mission' }
+            ],
+            rescheduledFrom: null,
+            rescheduledTo: null,
+            interruptReason: null
         };
     }
 };

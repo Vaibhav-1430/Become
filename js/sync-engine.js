@@ -452,6 +452,12 @@ const SyncEngine = {
             case 'INTERNSHIP_DELETE':
                 return await SupabaseService.deleteInternship(payload.internshipId);
 
+            case 'GATE_ATTEMPT':
+                return await SupabaseService.saveGatePyqAttempt(payload.attempt);
+
+            case 'GATE_TOPIC_PROGRESS':
+                return await SupabaseService.saveGateTopicProgress(payload.progress);
+
             default:
                 console.warn(`[SyncEngine] Unknown mutation type: ${type}`);
                 return true; // Discard invalid mutation
@@ -717,6 +723,42 @@ const SyncEngine = {
             });
         } else {
             this.queueMutation('INTERNSHIP_DELETE', { internshipId });
+        }
+    },
+
+    pushGatePyqAttempt(attempt) {
+        if (!attempt) return;
+        const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
+        const isAuth = typeof SupabaseService !== 'undefined' && SupabaseService.isAuthenticated();
+
+        if (isOnline && isAuth && this.pendingQueue.length === 0) {
+            this.updateStatus('SYNCING');
+            SupabaseService.saveGatePyqAttempt(attempt).then(ok => {
+                if (ok) this.updateStatus('SYNCED');
+                else this.queueMutation('GATE_ATTEMPT', { attempt });
+            }).catch(() => {
+                this.queueMutation('GATE_ATTEMPT', { attempt });
+            });
+        } else {
+            this.queueMutation('GATE_ATTEMPT', { attempt });
+        }
+    },
+
+    pushGateTopicProgress(progress) {
+        if (!progress) return;
+        const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
+        const isAuth = typeof SupabaseService !== 'undefined' && SupabaseService.isAuthenticated();
+
+        if (isOnline && isAuth && this.pendingQueue.length === 0) {
+            this.updateStatus('SYNCING');
+            SupabaseService.saveGateTopicProgress(progress).then(ok => {
+                if (ok) this.updateStatus('SYNCED');
+                else this.queueMutation('GATE_TOPIC_PROGRESS', { progress });
+            }).catch(() => {
+                this.queueMutation('GATE_TOPIC_PROGRESS', { progress });
+            });
+        } else {
+            this.queueMutation('GATE_TOPIC_PROGRESS', { progress });
         }
     },
 
@@ -1056,6 +1098,54 @@ const SyncEngine = {
             });
         }
 
+        // 9. GATE 2027 Attempts & Topic Progress
+        if (cloud.gateAttempts && Array.isArray(cloud.gateAttempts)) {
+            result.gate = result.gate || { attempts: {}, topicProgress: {}, subjectMastery: {}, customPyqs: [] };
+            result.gate.attempts = result.gate.attempts || {};
+            cloud.gateAttempts.forEach(att => {
+                const id = att.id || `gate_att_${att.pyq_id}_${att.attempted_at}`;
+                result.gate.attempts[id] = {
+                    id,
+                    userId: att.user_id || att.userId,
+                    pyqId: att.pyq_id || att.pyqId,
+                    subjectId: att.subject_id || att.subjectId,
+                    topicId: att.topic_id || att.topicId,
+                    year: att.year,
+                    attemptedAt: att.attempted_at || att.attemptedAt,
+                    status: att.status,
+                    isCorrect: !!(att.is_correct ?? att.isCorrect),
+                    timeTakenSeconds: Number(att.time_taken_seconds ?? att.timeTakenSeconds ?? 0),
+                    confidence: att.confidence || 'MEDIUM',
+                    mistakeType: att.mistake_type || att.mistakeType,
+                    notes: att.notes || '',
+                    revisionDueAt: att.revision_due_at || att.revisionDueAt,
+                    createdAt: att.created_at || att.createdAt,
+                    updatedAt: att.updated_at || att.updatedAt
+                };
+            });
+        }
+        if (cloud.gateTopicProgress && Array.isArray(cloud.gateTopicProgress)) {
+            result.gate = result.gate || { attempts: {}, topicProgress: {}, subjectMastery: {}, customPyqs: [] };
+            result.gate.topicProgress = result.gate.topicProgress || {};
+            cloud.gateTopicProgress.forEach(tp => {
+                const topId = tp.topic_id || tp.topicId;
+                if (topId) {
+                    result.gate.topicProgress[topId] = {
+                        subjectId: tp.subject_id || tp.subjectId,
+                        topicId: topId,
+                        totalAttempted: Number(tp.total_attempted ?? tp.totalAttempted ?? 0),
+                        totalCorrect: Number(tp.total_correct ?? tp.totalCorrect ?? 0),
+                        totalWrong: Number(tp.total_wrong ?? tp.totalWrong ?? 0),
+                        totalSkipped: Number(tp.total_skipped ?? tp.totalSkipped ?? 0),
+                        accuracyPercent: Number(tp.accuracy_percent ?? tp.accuracyPercent ?? 0),
+                        masteryPercent: Number(tp.mastery_percent ?? tp.masteryPercent ?? 0),
+                        lastPracticedAt: tp.last_practiced_at || tp.lastPracticedAt,
+                        revisionDue: !!(tp.revision_due ?? tp.revisionDue)
+                    };
+                }
+            });
+        }
+
         return result;
     },
 
@@ -1098,7 +1188,8 @@ const SyncEngine = {
             'workout_sessions',
             'personal_records',
             'internships',
-            'placement_hub_data'
+            'placement_hub_data',
+            'gate_pyq_attempts'
         ];
 
         tables.forEach(table => {
@@ -1151,6 +1242,9 @@ const SyncEngine = {
         } else if (table === 'personal_records') {
             entityId = rec.exercise_id || rec.id;
             entityType = 'personal_record';
+        } else if (table === 'gate_pyq_attempts') {
+            entityId = rec.id || `gate_att_${rec.pyq_id}_${rec.attempted_at}`;
+            entityType = 'gate_pyq_attempt';
         }
 
         // Echo suppression: If this write originated from this Web browser within 20s, skip
@@ -1387,6 +1481,36 @@ const SyncEngine = {
             Store.memoryState.internships = state.internships;
             Store.save();
             if (typeof App !== 'undefined' && App.renderAll) App.renderAll();
+        } else if (table === 'gate_pyq_attempts') {
+            state.gate = state.gate || { attempts: {}, topicProgress: {}, subjectMastery: {}, customPyqs: [] };
+            state.gate.attempts = state.gate.attempts || {};
+            const attId = rec.id || `gate_att_${rec.pyq_id}_${rec.attempted_at}`;
+            if (eventType === 'DELETE') {
+                delete state.gate.attempts[attId];
+            } else {
+                state.gate.attempts[attId] = {
+                    id: attId,
+                    userId: rec.user_id,
+                    pyqId: rec.pyq_id,
+                    subjectId: rec.subject_id,
+                    topicId: rec.topic_id,
+                    year: rec.year,
+                    attemptedAt: rec.attempted_at,
+                    status: rec.status,
+                    isCorrect: !!rec.is_correct,
+                    timeTakenSeconds: Number(rec.time_taken_seconds || 0),
+                    confidence: rec.confidence || 'MEDIUM',
+                    mistakeType: rec.mistake_type,
+                    notes: rec.notes || '',
+                    revisionDueAt: rec.revision_due_at,
+                    createdAt: rec.created_at,
+                    updatedAt: rec.updated_at
+                };
+            }
+            Store.save();
+            if (typeof GatePlannerEngine !== 'undefined' && GatePlannerEngine.renderTodayCard) {
+                GatePlannerEngine.renderTodayCard();
+            }
         }
     }
 };

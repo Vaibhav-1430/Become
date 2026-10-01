@@ -321,6 +321,10 @@
                     <span class="nav-icon">💻</span>
                     <span>Development</span>
                 </button>
+                <button class="nav-link" data-view="gate">
+                    <span class="nav-icon">🎓</span>
+                    <span>GATE 2027</span>
+                </button>
 
                 <div class="sidebar-nav-group-label">TRAINING & HABITS</div>
                 <button class="nav-link" data-view="mistakes">
@@ -539,6 +543,9 @@
                 </div>
             </div>
 
+            <!-- TODAY'S GATE 2027 DIRECTIVE CARD (Section 15) -->
+            <div id="todayGateDirectiveWidget" style="margin-bottom: 24px;"></div>
+
             <!-- TODAY'S AI ADAPTIVE COMMAND CARD (Part 11) -->
             <div id="todayAiDashboardWidget" style="margin-bottom: 24px;"></div>
 
@@ -732,6 +739,9 @@
 
         <!-- VIEW: MISTAKE BANK & WEAKNESS MAP -->
         <section id="view-mistakes" class="view-section"></section>
+
+        <!-- VIEW: GATE 2027 STUDY PLANNER & PYQ COMMAND -->
+        <section id="view-gate" class="view-section"></section>
 
         <!-- VIEW 5: GYM & POST-WORKOUT LIFESTYLE -->
         <section id="view-food" class="view-section">
@@ -2085,6 +2095,7 @@
      SCRIPTS
      ========================================================================== -->
 <script src="data/config.js"></script>
+<script src="data/gate-data.js"></script>
 <script src="data/dsa-a2z.js"></script>
 <script src="data/placement-data.js"></script>
 <script src="data/test-questions.js"></script>
@@ -2109,6 +2120,7 @@
 <script src="js/study-session.js"></script>
 <script src="js/recommend-engine.js"></script>
 <script src="js/mistakes.js"></script>
+<script src="js/gate-planner.js"></script>
 <script src="js/gym.js"></script>
 <script src="app.js"></script>
 </body>

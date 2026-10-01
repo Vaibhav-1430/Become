@@ -156,6 +156,10 @@ const CalendarEngine = {
                 `;
             }
 
+            const gateTasks = (summary.tasks || []).filter(t => t.category === 'GATE' || (t.id && t.id.includes('gate')));
+            const gateCompleted = gateTasks.some(t => t.status === 'COMPLETED');
+            const gateTagHtml = gateTasks.length > 0 ? `<span class="gate-tag" style="background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); padding: 1px 4px; border-radius: 3px; font-size: 9px; font-weight: 700;">GATE ${gateCompleted ? '✓' : '—'}</span>` : '';
+
             html += `
                 <div class="cal-cell in-range ${statusClass} ${isToday ? 'is-today' : ''} ${isWeekend ? 'is-weekend' : ''}"
                      data-date="${dateStr}"
@@ -172,6 +176,7 @@ const CalendarEngine = {
                         <div class="cal-mini-metric">
                             <span class="dsa-tag">DSA ${summary.dsaCompleted}/${summary.dsaTotal || 3}</span>
                             <span class="dev-tag">DEV ${summary.devCompleted ? '✓' : '—'}</span>
+                            ${gateTagHtml}
                             ${gymTagHtml}
                         </div>
                         ${summary.pct > 0 ? `<div class="cal-mini-bar"><div class="fill" style="width: ${summary.pct}%"></div></div>` : ''}
@@ -190,6 +195,10 @@ const CalendarEngine = {
                         <div class="tt-section">
                             <div class="tt-title">💻 Development Block (11:00 PM – 01:30 AM)</div>
                             <div class="tt-body">${devPreview}</div>
+                        </div>
+                        <div class="tt-section">
+                            <div class="tt-title">🎓 GATE PYQ Mission (10:30 PM – 12:00 AM)</div>
+                            <div class="tt-body">${gateTasks.length > 0 ? gateTasks.map(t => t.title).join('<br>') : 'GATE PYQ Study Session'}</div>
                         </div>
                         ${gymTooltipHtml}
                         <div class="tt-section">

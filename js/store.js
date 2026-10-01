@@ -85,6 +85,24 @@ class StorageManager {
                 sessions: [],   // [ { id, date, routineName, dayKey, durationMinutes, totalVolumeKg, totalSets, totalReps, completedAt, exercises: [...] } ]
                 activeSession: null,
                 measurements: []
+            },
+            gate: {
+                attempts: {},
+                topicProgress: {},
+                subjectMastery: {},
+                customPyqs: [],
+                settings: {
+                    targetPyqsPerSession: 8,
+                    sessionDurationMinutes: 90,
+                    weights: {
+                        historicalFrequency: 0.25,
+                        recentFrequency: 0.20,
+                        recurrence: 0.15,
+                        userWeakness: 0.20,
+                        revisionDue: 0.10,
+                        pyqCoverageGap: 0.10
+                    }
+                }
             }
         };
         this.lastInterruptionSnapshot = null; // In-memory undo snapshot
@@ -2917,6 +2935,132 @@ class StorageManager {
         return { status: 'PLANNED', label: `Planned: ${templ.routineName}`, template: templ };
     }
 
+    // =========================================================================
+    // FEATURE 9: GATE 2027 PERSISTENCE METHODS
+    // =========================================================================
+
+    getGateState() {
+        if (!this.memoryState.gate) {
+            this.memoryState.gate = {
+                attempts: {},
+                topicProgress: {},
+                subjectMastery: {},
+                customPyqs: [],
+                settings: {
+                    targetPyqsPerSession: 8,
+                    sessionDurationMinutes: 90,
+                    weights: {
+                        historicalFrequency: 0.25,
+                        recentFrequency: 0.20,
+                        recurrence: 0.15,
+                        userWeakness: 0.20,
+                        revisionDue: 0.10,
+                        pyqCoverageGap: 0.10
+                    }
+                }
+            };
+        }
+        return this.memoryState.gate;
+    }
+
+    getGatePyqAttempts() {
+        const gate = this.getGateState();
+        return Object.values(gate.attempts || {});
+    }
+
+    getGateAttemptByPyqId(pyqId) {
+        const attempts = this.getGatePyqAttempts();
+        return attempts.find(a => a.pyqId === pyqId) || null;
+    }
+
+    recordGatePyqAttempt(attemptData) {
+        const gate = this.getGateState();
+        if (!gate.attempts) gate.attempts = {};
+
+        const id = attemptData.id || `gate_att_${attemptData.pyqId}_${Date.now()}`;
+        const attempt = {
+            id,
+            userId: attemptData.userId || (typeof SupabaseService !== 'undefined' ? SupabaseService.getUserId() : 'local_user'),
+            pyqId: attemptData.pyqId,
+            subjectId: attemptData.subjectId,
+            topicId: attemptData.topicId,
+            year: attemptData.year,
+            attemptedAt: attemptData.attemptedAt || new Date().toISOString(),
+            status: attemptData.status || (attemptData.isCorrect ? 'CORRECT' : 'WRONG'),
+            isCorrect: !!attemptData.isCorrect,
+            timeTakenSeconds: Number(attemptData.timeTakenSeconds || 0),
+            confidence: attemptData.confidence || 'MEDIUM',
+            mistakeType: attemptData.mistakeType || null,
+            notes: attemptData.notes || '',
+            revisionDueAt: attemptData.revisionDueAt || null,
+            createdAt: attemptData.createdAt || new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+        };
+
+        gate.attempts[id] = attempt;
+
+        if (!gate.topicProgress) gate.topicProgress = {};
+        const topId = attempt.topicId;
+        const topicAttempts = Object.values(gate.attempts).filter(a => a.topicId === topId);
+        const totalAttempted = topicAttempts.length;
+        const totalCorrect = topicAttempts.filter(a => a.isCorrect).length;
+        const totalWrong = topicAttempts.filter(a => !a.isCorrect && a.status !== 'SKIPPED').length;
+        const totalSkipped = topicAttempts.filter(a => a.status === 'SKIPPED').length;
+        const accuracy = totalAttempted > 0 ? Math.round((totalCorrect / totalAttempted) * 100) : 0;
+        const mastery = Math.round((accuracy * 0.7) + (Math.min(totalAttempted, 10) * 3));
+
+        gate.topicProgress[topId] = {
+            subjectId: attempt.subjectId,
+            topicId: topId,
+            totalAttempted,
+            totalCorrect,
+            totalWrong,
+            totalSkipped,
+            accuracyPercent: accuracy,
+            masteryPercent: Math.min(100, mastery),
+            lastPracticedAt: attempt.attemptedAt,
+            revisionDue: !attempt.isCorrect || accuracy < 75
+        };
+
+        this.save();
+        return attempt;
+    }
+
+    getGateTopicProgress(topicId) {
+        const gate = this.getGateState();
+        return gate.topicProgress?.[topicId] || null;
+    }
+
+    getGateCustomPyqs() {
+        const gate = this.getGateState();
+        return gate.customPyqs || [];
+    }
+
+    addGateCustomPyq(pyq) {
+        const gate = this.getGateState();
+        if (!gate.customPyqs) gate.customPyqs = [];
+        const existingIdx = gate.customPyqs.findIndex(q => q.id === pyq.id);
+        if (existingIdx >= 0) {
+            gate.customPyqs[existingIdx] = pyq;
+        } else {
+            gate.customPyqs.push(pyq);
+        }
+        this.save();
+        return pyq;
+    }
+
+    importGatePyqs(pyqList) {
+        if (!Array.isArray(pyqList)) return 0;
+        let count = 0;
+        pyqList.forEach(q => {
+            if (q && q.id) {
+                this.addGateCustomPyq(q);
+                count++;
+            }
+        });
+        return count;
+    }
+
     resetToDefault() {
         this.memoryState = {
             days: {},
@@ -3243,6 +3387,52 @@ class StorageManager {
                     this.memoryState.internships[idx] = iObj;
                 } else {
                     this.memoryState.internships.push(iObj);
+                }
+            });
+        }
+
+        // 10. GATE 2027 Attempts & Topic Progress
+        if (cloudData.gateAttempts && Array.isArray(cloudData.gateAttempts)) {
+            const gate = this.getGateState();
+            cloudData.gateAttempts.forEach(att => {
+                const id = att.id || `gate_att_${att.pyq_id}_${att.attempted_at}`;
+                gate.attempts[id] = {
+                    id,
+                    userId: att.user_id || att.userId,
+                    pyqId: att.pyq_id || att.pyqId,
+                    subjectId: att.subject_id || att.subjectId,
+                    topicId: att.topic_id || att.topicId,
+                    year: att.year,
+                    attemptedAt: att.attempted_at || att.attemptedAt,
+                    status: att.status,
+                    isCorrect: !!(att.is_correct ?? att.isCorrect),
+                    timeTakenSeconds: Number(att.time_taken_seconds ?? att.timeTakenSeconds ?? 0),
+                    confidence: att.confidence || 'MEDIUM',
+                    mistakeType: att.mistake_type || att.mistakeType,
+                    notes: att.notes || '',
+                    revisionDueAt: att.revision_due_at || att.revisionDueAt,
+                    createdAt: att.created_at || att.createdAt,
+                    updatedAt: att.updated_at || att.updatedAt
+                };
+            });
+        }
+        if (cloudData.gateTopicProgress && Array.isArray(cloudData.gateTopicProgress)) {
+            const gate = this.getGateState();
+            cloudData.gateTopicProgress.forEach(tp => {
+                const topId = tp.topic_id || tp.topicId;
+                if (topId) {
+                    gate.topicProgress[topId] = {
+                        subjectId: tp.subject_id || tp.subjectId,
+                        topicId: topId,
+                        totalAttempted: Number(tp.total_attempted ?? tp.totalAttempted ?? 0),
+                        totalCorrect: Number(tp.total_correct ?? tp.totalCorrect ?? 0),
+                        totalWrong: Number(tp.total_wrong ?? tp.totalWrong ?? 0),
+                        totalSkipped: Number(tp.total_skipped ?? tp.totalSkipped ?? 0),
+                        accuracyPercent: Number(tp.accuracy_percent ?? tp.accuracyPercent ?? 0),
+                        masteryPercent: Number(tp.mastery_percent ?? tp.masteryPercent ?? 0),
+                        lastPracticedAt: tp.last_practiced_at || tp.lastPracticedAt,
+                        revisionDue: !!(tp.revision_due ?? tp.revisionDue)
+                    };
                 }
             });
         }

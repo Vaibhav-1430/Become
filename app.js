@@ -328,6 +328,7 @@ const App = {
             dsa: "Striver A2Z DSA",
             "ai-engine": "AI Study Engine",
             development: "Development Hub",
+            gate: "GATE 2027 Planner",
             mistakes: "Mistake Bank",
             food: "Gym & Lifestyle",
             placement: "Placement Hub",
@@ -417,6 +418,7 @@ const App = {
             dsa: "Striver A2Z DSA Progression",
             "ai-engine": "Adaptive AI Study Engine & Tutor",
             development: "Full-Stack Development Command Center",
+            gate: "GATE 2027 Study Planner & Command",
             mistakes: "Mistake Bank & Knowledge Weakness Map",
             food: "Gym, Workouts & Lifestyle Command",
             placement: "Placement Preparation Command",
@@ -446,6 +448,9 @@ const App = {
             if (typeof window !== 'undefined' && typeof window.loadMonaco === 'function') {
                 window.loadMonaco().catch(() => {});
             }
+        }
+        else if (viewName === 'gate') {
+            if (typeof GatePlannerEngine !== 'undefined') GatePlannerEngine.renderPlannerPage();
         }
         else if (viewName === 'mistakes') {
             if (typeof MistakeBank !== 'undefined') MistakeBank.render();
@@ -699,6 +704,11 @@ const App = {
         // 3. Render Today's AI Dashboard Card (Part 11)
         if (typeof AIEngine !== 'undefined') {
             AIEngine.renderTodayAiCard();
+        }
+
+        // Render Tonight's GATE Directive Card
+        if (typeof GatePlannerEngine !== 'undefined') {
+            GatePlannerEngine.renderTodayCard();
         }
 
         // 3. Render Post-Workout Recipe Widget

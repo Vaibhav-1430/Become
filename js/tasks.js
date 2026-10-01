@@ -445,6 +445,9 @@ const TaskEngine = {
         const creatineTask = tasks.find(t => t.category === APP_CONFIG.CATEGORIES.CREATINE);
         const creatineCompleted = creatineTask ? (creatineTask.status === APP_CONFIG.TASK_STATUS.COMPLETED ? 1 : 0) : 0;
 
+        const gateTasks = tasks.filter(t => t.category === (APP_CONFIG.CATEGORIES && APP_CONFIG.CATEGORIES.GATE) || t.category === 'GATE' || (t.id && t.id.includes('gate')));
+        const gateCompleted = gateTasks.filter(t => t.status === APP_CONFIG.TASK_STATUS.COMPLETED).length;
+
         return {
             dateStr,
             tasks,
@@ -457,6 +460,8 @@ const TaskEngine = {
             devTotal: devTask ? 1 : 0,
             devCompleted,
             creatineCompleted,
+            gateTotal: gateTasks.length,
+            gateCompleted,
             status: Store.getDayData(dateStr).status || 'PLANNED'
         };
     },
