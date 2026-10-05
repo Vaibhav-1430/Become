@@ -160,6 +160,36 @@ const CalendarEngine = {
             const gateCompleted = gateTasks.some(t => t.status === 'COMPLETED');
             const gateTagHtml = gateTasks.length > 0 ? `<span class="gate-tag" style="background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); padding: 1px 4px; border-radius: 3px; font-size: 9px; font-weight: 700;">GATE ${gateCompleted ? '✓' : '—'}</span>` : '';
 
+            // StudyOS Nutrition & Cardio Engine Calendar Integration (Requirement 17)
+            const nutritionDay = typeof Store.getNutritionDay === 'function' ? Store.getNutritionDay(dateStr) : null;
+            let nutritionTagHtml = '';
+            let cardioTagHtml = '';
+            let nutritionTooltipHtml = '';
+
+            if (nutritionDay) {
+                const hasEaten = (nutritionDay.totalCalories > 0);
+                const protText = hasEaten ? `${Math.round(nutritionDay.totalProteinG)}g` : 'Plan';
+                const protClass = (nutritionDay.totalProteinG >= 140) ? 'completed' : 'planned';
+                nutritionTagHtml = `<span class="nutrition-tag ${protClass}">🥗 ${protText}</span>`;
+
+                const cardioMins = nutritionDay.cardioMinutes || (DateUtils.isWeekend(dateStr) ? 0 : 25);
+                const cardioDone = nutritionDay.cardioCompleted;
+                if (cardioMins > 0) {
+                    cardioTagHtml = `<span class="cardio-tag ${cardioDone ? 'completed' : 'planned'}">🏃 ${cardioDone ? '✓ ' : ''}${cardioMins}m</span>`;
+                }
+
+                nutritionTooltipHtml = `
+                    <div class="tt-section">
+                        <div class="tt-title">🥗 Nutrition & Cardio Target</div>
+                        <div class="tt-body" style="font-size: 11px;">
+                            ${nutritionDay.totalCalories > 0 ? `Calories: <b>${nutritionDay.totalCalories} kcal</b> · Protein: <b>${nutritionDay.totalProteinG}g</b><br>` : 'Plan: ~2,250 kcal · 150g Protein (No Chicken)<br>'}
+                            🏃 Cardio: <b>${cardioMins}m ${nutritionDay.cardioType || 'Incline Walking'}</b> ${cardioDone ? '✓ Completed' : 'Scheduled'}<br>
+                            💧 Water: <b>${nutritionDay.waterMl || 0} / 3000 ml</b> · 👟 Steps: <b>${(nutritionDay.steps || 0).toLocaleString()}</b>
+                        </div>
+                    </div>
+                `;
+            }
+
             html += `
                 <div class="cal-cell in-range ${statusClass} ${isToday ? 'is-today' : ''} ${isWeekend ? 'is-weekend' : ''}"
                      data-date="${dateStr}"
@@ -178,6 +208,8 @@ const CalendarEngine = {
                             <span class="dev-tag">DEV ${summary.devCompleted ? '✓' : '—'}</span>
                             ${gateTagHtml}
                             ${gymTagHtml}
+                            ${cardioTagHtml}
+                            ${nutritionTagHtml}
                         </div>
                         ${summary.pct > 0 ? `<div class="cal-mini-bar"><div class="fill" style="width: ${summary.pct}%"></div></div>` : ''}
                     </div>
@@ -201,6 +233,7 @@ const CalendarEngine = {
                             <div class="tt-body">${gateTasks.length > 0 ? gateTasks.map(t => t.title).join('<br>') : 'GATE PYQ Study Session'}</div>
                         </div>
                         ${gymTooltipHtml}
+                        ${nutritionTooltipHtml}
                         <div class="tt-section">
                             <div class="tt-title">🥣 Post-Workout Recipe</div>
                             <div class="tt-body" style="color: var(--text-gold); font-size: 10.5px;">${recipe ? recipe.name : 'Soya Chunks & Oats Bowl'}</div>

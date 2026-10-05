@@ -13588,6 +13588,7 @@ html, body {
     line-height: 1.3;
     display: -webkit-box;
     -webkit-line-clamp: 2;
+    line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
     margin-bottom: 10px;
@@ -13953,6 +13954,740 @@ html, body {
     font-weight: 700;
     color: var(--text-muted, #94a3b8);
     text-transform: uppercase;
+}
+
+/* ==========================================================================
+   STUDYOS FITNESS & NUTRITION ENGINE STYLES
+   ========================================================================== */
+
+.nutrition-hero-card {
+    background: var(--forge-surface, #13171f);
+    border: 1px solid var(--forge-border, rgba(255, 255, 255, 0.12));
+    border-radius: var(--forge-radius-lg, 12px);
+    padding: 22px;
+    position: relative;
+    overflow: hidden;
+}
+
+.nutrition-hero-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 4px;
+    height: 100%;
+    background: linear-gradient(180deg, #10b981 0%, var(--forge-accent, #e5a93c) 100%);
+}
+
+.nutrition-hero-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 16px;
+}
+
+.milestone-badge-box {
+    background: rgba(229, 169, 60, 0.08);
+    border: 1px solid rgba(229, 169, 60, 0.25);
+    border-radius: var(--forge-radius-md, 8px);
+    padding: 12px 18px;
+    text-align: right;
+    min-width: 200px;
+}
+
+.nutrition-progress-track {
+    width: 100%;
+    height: 8px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: var(--forge-radius-pill, 9999px);
+    overflow: hidden;
+}
+
+.nutrition-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #10b981 0%, var(--forge-accent, #e5a93c) 100%);
+    border-radius: var(--forge-radius-pill, 9999px);
+    transition: width 0.3s ease;
+}
+
+.nutrition-mini-track {
+    width: 100%;
+    height: 5px;
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: var(--forge-radius-pill, 9999px);
+    overflow: hidden;
+    margin: 6px 0;
+}
+
+.nutrition-mini-fill {
+    height: 100%;
+    border-radius: var(--forge-radius-pill, 9999px);
+    transition: width 0.3s ease;
+}
+
+/* Dashboard Metric Grid */
+.nutrition-dashboard-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 14px;
+}
+
+.nutrition-metric-card {
+    background: var(--forge-surface, #13171f);
+    border: 1px solid var(--forge-border-subtle, rgba(255, 255, 255, 0.07));
+    border-radius: var(--forge-radius-md, 8px);
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    transition: border-color var(--forge-motion-fast, 140ms);
+}
+
+.nutrition-metric-card:hover {
+    border-color: var(--forge-border, rgba(255, 255, 255, 0.16));
+}
+
+.nm-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.nm-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--forge-text-primary, #f2f5f8);
+}
+
+.nm-badge {
+    font-size: 10.5px;
+    font-weight: 700;
+    padding: 2px 7px;
+    border-radius: var(--forge-radius-pill, 9999px);
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--forge-text-secondary, #9aa7b7);
+}
+
+.nm-badge.success {
+    background: rgba(16, 185, 129, 0.15);
+    color: #10b981;
+}
+
+.nm-value-row {
+    margin: 4px 0;
+}
+
+.nm-main-val {
+    font-size: 20px;
+    font-weight: 800;
+    color: #fff;
+}
+
+.nm-sub-tag {
+    font-size: 11.5px;
+    color: var(--forge-text-muted, #5e6b7c);
+    display: block;
+    margin-top: 2px;
+}
+
+.nm-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 11.5px;
+    color: var(--forge-text-muted, #5e6b7c);
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* Quick Water Buttons */
+.water-quick-btn-row {
+    display: flex;
+    gap: 6px;
+    margin: 8px 0 4px 0;
+    flex-wrap: wrap;
+}
+
+.water-add-btn {
+    background: rgba(56, 189, 248, 0.08);
+    border: 1px solid rgba(56, 189, 248, 0.22);
+    color: #38bdf8;
+    padding: 4px 8px;
+    border-radius: var(--forge-radius-sm, 6px);
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.water-add-btn:hover {
+    background: rgba(56, 189, 248, 0.18);
+    border-color: #38bdf8;
+}
+
+/* Energy Monitor Card */
+.nutrition-energy-card {
+    background: var(--forge-surface, #13171f);
+    border: 1px solid var(--forge-border, rgba(255, 255, 255, 0.12));
+    border-radius: var(--forge-radius-md, 8px);
+    padding: 16px 20px;
+}
+
+.energy-btn-group {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.energy-toggle-btn {
+    background: var(--forge-surface-raised, #191f2a);
+    border: 1px solid var(--forge-border-subtle, rgba(255, 255, 255, 0.08));
+    color: var(--forge-text-secondary, #9aa7b7);
+    padding: 6px 14px;
+    border-radius: var(--forge-radius-pill, 9999px);
+    font-size: 12.5px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.energy-toggle-btn:hover {
+    border-color: var(--forge-border, rgba(255, 255, 255, 0.2));
+}
+
+.energy-toggle-btn.active.high {
+    background: rgba(16, 185, 129, 0.15);
+    border-color: #10b981;
+    color: #10b981;
+}
+
+.energy-toggle-btn.active.normal {
+    background: rgba(245, 158, 11, 0.15);
+    border-color: #f59e0b;
+    color: #f59e0b;
+}
+
+.energy-toggle-btn.active.low {
+    background: rgba(249, 115, 22, 0.18);
+    border-color: #f97316;
+    color: #f97316;
+}
+
+.energy-toggle-btn.active.very-low {
+    background: rgba(239, 68, 68, 0.20);
+    border-color: #ef4444;
+    color: #ef4444;
+}
+
+.energy-alert-callout {
+    padding: 12px 16px;
+    border-radius: var(--forge-radius-md, 8px);
+}
+
+.energy-alert-callout.warning {
+    background: rgba(245, 158, 11, 0.08);
+    border: 1px solid rgba(245, 158, 11, 0.25);
+    color: #fbbf24;
+}
+
+.energy-alert-callout.critical {
+    background: rgba(239, 68, 68, 0.10);
+    border: 1px solid rgba(239, 68, 68, 0.35);
+    color: #fca5a5;
+}
+
+/* Daily Checklist */
+.daily-checklist-card {
+    background: var(--forge-surface, #13171f);
+    border: 1px solid var(--forge-border-subtle, rgba(255, 255, 255, 0.08));
+    border-radius: var(--forge-radius-md, 8px);
+    padding: 18px 20px;
+}
+
+.checklist-items-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 8px;
+}
+
+.checklist-row {
+    background: var(--forge-surface-raised, #191f2a);
+    border: 1px solid var(--forge-border-subtle, rgba(255, 255, 255, 0.06));
+    border-radius: var(--forge-radius-sm, 6px);
+    padding: 8px 12px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+    user-select: none;
+    transition: all 0.15s ease;
+}
+
+.checklist-row:hover {
+    background: var(--forge-surface-active, #212937);
+    border-color: var(--forge-border, rgba(255, 255, 255, 0.15));
+}
+
+.checklist-row.completed {
+    border-color: rgba(16, 185, 129, 0.3);
+    background: rgba(16, 185, 129, 0.05);
+}
+
+.checklist-row.completed .checklist-label {
+    text-decoration: line-through;
+    color: var(--forge-text-muted, #5e6b7c);
+}
+
+.checklist-label {
+    font-size: 13px;
+    color: var(--forge-text-primary, #f2f5f8);
+    flex: 1;
+}
+
+.checklist-check-icon {
+    font-size: 13px;
+    font-weight: 800;
+    color: #10b981;
+}
+
+/* Diet Plan Day Pills */
+.diet-day-pills-row {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    padding-bottom: 4px;
+}
+
+.diet-day-pill {
+    background: var(--forge-surface, #13171f);
+    border: 1px solid var(--forge-border-subtle, rgba(255, 255, 255, 0.08));
+    color: var(--forge-text-secondary, #9aa7b7);
+    padding: 8px 18px;
+    border-radius: var(--forge-radius-md, 8px);
+    font-weight: 700;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.diet-day-pill:hover {
+    background: var(--forge-surface-raised, #191f2a);
+    color: #fff;
+}
+
+.diet-day-pill.active {
+    background: rgba(229, 169, 60, 0.12);
+    border-color: var(--forge-accent, #e5a93c);
+    color: var(--forge-accent, #e5a93c);
+}
+
+/* Plan Day Meta Card */
+.plan-day-meta-card {
+    background: var(--forge-surface, #13171f);
+    border: 1px solid var(--forge-border, rgba(255, 255, 255, 0.12));
+    border-radius: var(--forge-radius-md, 8px);
+    padding: 16px 20px;
+}
+
+/* Meal Block Card */
+.meal-block-card {
+    background: var(--forge-surface, #13171f);
+    border: 1px solid var(--forge-border-subtle, rgba(255, 255, 255, 0.08));
+    border-radius: var(--forge-radius-md, 8px);
+    padding: 18px;
+    margin-bottom: 14px;
+}
+
+.mbc-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 10px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.mbc-time {
+    font-size: 11.5px;
+    color: var(--forge-text-muted, #5e6b7c);
+    font-weight: 600;
+}
+
+.mbc-optional-tag {
+    font-size: 9.5px;
+    background: rgba(245, 158, 11, 0.15);
+    color: #fbbf24;
+    padding: 1px 6px;
+    border-radius: var(--forge-radius-pill, 9999px);
+    font-weight: 700;
+}
+
+.mbc-guidance {
+    margin: 4px 0 0 0;
+    font-size: 12.5px;
+    color: var(--forge-text-secondary, #9aa7b7);
+}
+
+.mbc-macros-pill {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: var(--forge-radius-pill, 9999px);
+    padding: 4px 12px;
+    font-size: 12px;
+    color: var(--forge-text-primary, #f2f5f8);
+}
+
+.mbc-items-table {
+    margin-top: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.mbc-item-row {
+    background: var(--forge-surface-raised, #191f2a);
+    border-radius: var(--forge-radius-sm, 6px);
+    padding: 8px 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.soy-dry-tag {
+    display: inline-block;
+    background: rgba(245, 158, 11, 0.15);
+    border: 1px solid rgba(245, 158, 11, 0.3);
+    color: #fbbf24;
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-size: 10px;
+    font-weight: 700;
+    margin-left: 6px;
+}
+
+.oats-stepper {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid var(--forge-border-subtle, rgba(255, 255, 255, 0.1));
+    border-radius: var(--forge-radius-sm, 6px);
+    padding: 2px 6px;
+}
+
+.oats-stepper button {
+    background: none;
+    border: none;
+    color: var(--forge-accent, #e5a93c);
+    font-weight: 800;
+    font-size: 14px;
+    cursor: pointer;
+    padding: 0 4px;
+}
+
+.oats-stepper span {
+    font-size: 12px;
+    font-weight: 700;
+    color: #fff;
+}
+
+.mbc-qty-badge {
+    background: rgba(255, 255, 255, 0.08);
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: #fff;
+}
+
+.mbc-item-macro {
+    font-size: 12px;
+    color: var(--forge-text-secondary, #9aa7b7);
+}
+
+.mbc-alternatives-box {
+    margin-top: 10px;
+    padding: 10px 12px;
+    background: rgba(229, 169, 60, 0.04);
+    border: 1px dashed rgba(229, 169, 60, 0.25);
+    border-radius: var(--forge-radius-sm, 6px);
+}
+
+/* Tracker Forms & Tables */
+.tracker-forms-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 16px;
+}
+
+.tracker-form-card {
+    background: var(--forge-surface, #13171f);
+    border: 1px solid var(--forge-border, rgba(255, 255, 255, 0.12));
+    border-radius: var(--forge-radius-md, 8px);
+    padding: 18px;
+}
+
+.tracker-history-card {
+    background: var(--forge-surface, #13171f);
+    border: 1px solid var(--forge-border, rgba(255, 255, 255, 0.12));
+    border-radius: var(--forge-radius-md, 8px);
+    padding: 18px;
+}
+
+.nutrition-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12.5px;
+}
+
+.nutrition-table th {
+    text-align: left;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--forge-border, rgba(255, 255, 255, 0.12));
+    color: var(--forge-text-muted, #5e6b7c);
+    font-size: 11px;
+    text-transform: uppercase;
+    font-weight: 700;
+}
+
+.nutrition-table td {
+    padding: 10px 12px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+/* Substitution Cards */
+.substitution-hero-card {
+    background: var(--forge-surface, #13171f);
+    border: 1px solid var(--forge-border, rgba(255, 255, 255, 0.12));
+    border-radius: var(--forge-radius-md, 8px);
+    padding: 18px 20px;
+}
+
+.substitutions-catalog-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 14px;
+}
+
+.sub-pair-card {
+    background: var(--forge-surface, #13171f);
+    border: 1px solid var(--forge-border-subtle, rgba(255, 255, 255, 0.08));
+    border-radius: var(--forge-radius-md, 8px);
+    padding: 16px;
+}
+
+.sub-badge {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: var(--forge-accent, #e5a93c);
+    letter-spacing: 0.5px;
+}
+
+.sub-pair-title {
+    font-size: 14.5px;
+    font-weight: 700;
+    color: #fff;
+    margin: 4px 0 8px 0;
+}
+
+.sub-stat-row {
+    font-size: 12.5px;
+    color: var(--forge-text-primary, #f2f5f8);
+    margin-bottom: 3px;
+}
+
+/* Streaks & Progress */
+.streaks-row-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px;
+}
+
+.streak-mini-card {
+    background: var(--forge-surface, #13171f);
+    border: 1px solid var(--forge-border-subtle, rgba(255, 255, 255, 0.08));
+    border-radius: var(--forge-radius-md, 8px);
+    padding: 14px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.smc-icon {
+    font-size: 24px;
+}
+
+.smc-val {
+    font-size: 18px;
+    font-weight: 800;
+    color: #fff;
+}
+
+.smc-lbl {
+    font-size: 11px;
+    color: var(--forge-text-secondary, #9aa7b7);
+}
+
+.weekly-report-card {
+    background: var(--forge-surface, #13171f);
+    border: 1px solid var(--forge-border, rgba(255, 255, 255, 0.12));
+    border-radius: var(--forge-radius-md, 8px);
+    padding: 20px;
+}
+
+.weekly-stats-metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px;
+}
+
+.wsm-card {
+    background: var(--forge-surface-raised, #191f2a);
+    border-radius: var(--forge-radius-sm, 6px);
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+}
+
+.wsm-lbl {
+    font-size: 11px;
+    color: var(--forge-text-muted, #5e6b7c);
+    text-transform: uppercase;
+    font-weight: 700;
+}
+
+.wsm-val {
+    font-size: 18px;
+    font-weight: 800;
+    color: #fff;
+    margin: 4px 0 2px 0;
+}
+
+.wsm-sub {
+    font-size: 11.5px;
+    color: var(--forge-text-secondary, #9aa7b7);
+}
+
+.progress-rules-feedback-box {
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid var(--forge-border-subtle, rgba(255, 255, 255, 0.08));
+    border-radius: var(--forge-radius-md, 8px);
+    padding: 14px 18px;
+}
+
+.rec-bullet-row {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    margin-bottom: 6px;
+}
+
+.rec-arrow {
+    color: var(--forge-accent, #e5a93c);
+    font-weight: 800;
+}
+
+.rec-bullet-row.warning .rec-arrow {
+    color: #f59e0b;
+}
+
+/* Today's Command Nutrition Widget */
+.today-nutrition-widget {
+    background: var(--forge-surface, #13171f);
+    border: 1px solid var(--forge-border, rgba(255, 255, 255, 0.12));
+    border-radius: var(--forge-radius-md, 8px);
+    padding: 16px 18px;
+    cursor: pointer;
+    transition: all 0.18s ease;
+}
+
+.today-nutrition-widget:hover {
+    border-color: var(--forge-accent, #e5a93c);
+    background: var(--forge-surface-raised, #191f2a);
+}
+
+.tnw-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.tnw-badge {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--forge-accent, #e5a93c);
+    letter-spacing: 0.5px;
+}
+
+.tnw-link {
+    font-size: 12px;
+    color: var(--forge-accent, #e5a93c);
+    font-weight: 700;
+}
+
+/* Calendar Mini Tags for Nutrition & Cardio */
+.nutrition-tag {
+    display: inline-block;
+    background: rgba(16, 185, 129, 0.15);
+    color: #10b981;
+    border: 1px solid rgba(16, 185, 129, 0.3);
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-size: 9px;
+    font-weight: 700;
+}
+
+.cardio-tag {
+    display: inline-block;
+    background: rgba(56, 189, 248, 0.15);
+    color: #38bdf8;
+    border: 1px solid rgba(56, 189, 248, 0.3);
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-size: 9px;
+    font-weight: 700;
+}
+
+.profile-settings-card {
+    background: var(--forge-surface, #13171f);
+    border: 1px solid var(--forge-border, rgba(255, 255, 255, 0.12));
+    border-radius: var(--forge-radius-md, 8px);
+    padding: 22px;
+}
+
+.form-grid-2col {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 14px;
+}
+
+/* Mobile Responsiveness */
+@media (max-width: 768px) {
+    .nutrition-hero-top {
+        flex-direction: column;
+    }
+    .milestone-badge-box {
+        text-align: left;
+        width: 100%;
+    }
+    .diet-day-pills-row {
+        gap: 6px;
+    }
+    .mbc-header {
+        flex-direction: column;
+    }
+    .energy-btn-group {
+        width: 100%;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+    }
 }
 
 

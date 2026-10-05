@@ -103,6 +103,31 @@ class StorageManager {
                         pyqCoverageGap: 0.10
                     }
                 }
+            },
+            nutrition: {
+                profile: {
+                    userId: null,
+                    age: 20,
+                    heightCm: 170.0,
+                    startingWeightKg: 92.0,
+                    currentWeightKg: 92.0,
+                    goalWeightKg: 82.0,
+                    currentMilestoneKg: 87.0,
+                    dailyCalorieTarget: 2250,
+                    dailyProteinTargetG: 150,
+                    dailyWaterTargetMl: 3000,
+                    dailyStepTarget: 9000,
+                    cardioSessionsPerWeek: 3,
+                    cardioDurationMinutes: 25,
+                    cardioPhase: 'WEEK_1_2',
+                    dietConstraints: ['NO_CHICKEN'],
+                    availableProteinSources: ['eggs', 'soy_chunks', 'paneer', 'tofu', 'dal', 'curd', 'milk', 'protein_oats', 'whey_optional'],
+                    macroSplits: { carbsG: 240, fatsG: 65, proteinG: 150 }
+                },
+                days: {},
+                weightLogs: [],
+                waistLogs: [],
+                customFoods: {}
             }
         };
         this.lastInterruptionSnapshot = null; // In-memory undo snapshot
@@ -187,6 +212,15 @@ class StorageManager {
                         subjectMastery: { ...(this.memoryState.gate?.subjectMastery || {}), ...(parsed.gate?.subjectMastery || {}) },
                         customPyqs: Array.isArray(parsed.gate?.customPyqs) ? parsed.gate.customPyqs : (this.memoryState.gate?.customPyqs || []),
                         settings: { ...(this.memoryState.gate?.settings || {}), ...(parsed.gate?.settings || {}) }
+                    },
+                    nutrition: {
+                        ...this.memoryState.nutrition,
+                        ...(parsed.nutrition || {}),
+                        profile: { ...(this.memoryState.nutrition?.profile || {}), ...(parsed.nutrition?.profile || {}) },
+                        days: { ...(this.memoryState.nutrition?.days || {}), ...(parsed.nutrition?.days || {}) },
+                        weightLogs: Array.isArray(parsed.nutrition?.weightLogs) ? parsed.nutrition.weightLogs : [],
+                        waistLogs: Array.isArray(parsed.nutrition?.waistLogs) ? parsed.nutrition.waistLogs : [],
+                        customFoods: { ...(this.memoryState.nutrition?.customFoods || {}), ...(parsed.nutrition?.customFoods || {}) }
                     }
                 };
             }
@@ -3703,6 +3737,431 @@ class StorageManager {
             TaskEngine.invalidateStatsCache();
         }
         this.save(true);
+    }
+
+    // =========================================================================
+    // STUDYOS FITNESS & NUTRITION ENGINE STORE METHODS
+    // =========================================================================
+
+    getNutritionProfile() {
+        if (!this.memoryState.nutrition) this.memoryState.nutrition = {};
+        if (!this.memoryState.nutrition.profile) {
+            this.memoryState.nutrition.profile = {
+                userId: null,
+                age: 20,
+                heightCm: 170.0,
+                startingWeightKg: 92.0,
+                currentWeightKg: 92.0,
+                goalWeightKg: 82.0,
+                currentMilestoneKg: 87.0,
+                dailyCalorieTarget: 2250,
+                dailyProteinTargetG: 150,
+                dailyWaterTargetMl: 3000,
+                dailyStepTarget: 9000,
+                cardioSessionsPerWeek: 3,
+                cardioDurationMinutes: 25,
+                cardioPhase: 'WEEK_1_2',
+                dietConstraints: ['NO_CHICKEN'],
+                availableProteinSources: ['eggs', 'soy_chunks', 'paneer', 'tofu', 'dal', 'curd', 'milk', 'protein_oats', 'whey_optional'],
+                macroSplits: { carbsG: 240, fatsG: 65, proteinG: 150 }
+            };
+        }
+        return this.memoryState.nutrition.profile;
+    }
+
+    updateNutritionProfile(updates = {}) {
+        const profile = this.getNutritionProfile();
+        // Prevent crash dieting or unsafe parameters
+        if (updates.dailyCalorieTarget && updates.dailyCalorieTarget < 1200) {
+            updates.dailyCalorieTarget = 1200;
+        }
+        // Strict exclusion of chicken
+        const dietConstraints = Array.isArray(updates.dietConstraints)
+            ? [...new Set([...updates.dietConstraints, 'NO_CHICKEN'])]
+            : (profile.dietConstraints || ['NO_CHICKEN']);
+
+        this.memoryState.nutrition.profile = {
+            ...profile,
+            ...updates,
+            dietConstraints,
+            updatedAt: new Date().toISOString()
+        };
+        this.save();
+        return this.memoryState.nutrition.profile;
+    }
+
+    getNutritionDay(dateStr) {
+        if (!dateStr) dateStr = typeof DateUtils !== 'undefined' ? DateUtils.todayIST() : new Date().toISOString().slice(0, 10);
+        if (!this.memoryState.nutrition) this.memoryState.nutrition = {};
+        if (!this.memoryState.nutrition.days) this.memoryState.nutrition.days = {};
+
+        if (!this.memoryState.nutrition.days[dateStr]) {
+            // Determine day of week to load default template meals from plan
+            const dayOfWeek = new Date(dateStr + 'T12:00:00Z').getUTCDay(); // 0 = Sun, 1 = Mon...
+            let templateMeals = [];
+
+            if (typeof HOSTEL_WEEKLY_DIET_PLAN !== 'undefined' || (typeof window !== 'undefined' && window.HOSTEL_WEEKLY_DIET_PLAN)) {
+                const planList = typeof HOSTEL_WEEKLY_DIET_PLAN !== 'undefined' ? HOSTEL_WEEKLY_DIET_PLAN : window.HOSTEL_WEEKLY_DIET_PLAN;
+                const dayPlan = planList.find(p => p.dayIndex === dayOfWeek) || planList[0];
+                const foodDb = typeof NUTRITION_FOOD_DATABASE !== 'undefined' ? NUTRITION_FOOD_DATABASE : (window.NUTRITION_FOOD_DATABASE || {});
+
+                if (dayPlan && dayPlan.meals) {
+                    Object.entries(dayPlan.meals).forEach(([mealType, mealInfo]) => {
+                        (mealInfo.items || []).forEach((item, itemIdx) => {
+                            const food = foodDb[item.foodId] || {};
+                            const factor = item.unit === 'g' || item.unit === 'ml' ? item.quantity / (food.portionSize || 100) : item.quantity;
+                            templateMeals.push({
+                                id: `${dateStr}_${mealType}_${itemIdx}`,
+                                mealType,
+                                foodId: item.foodId,
+                                foodName: food.name || item.foodId,
+                                portionDescription: `${item.quantity} ${item.unit}`,
+                                quantity: item.quantity,
+                                unit: item.unit,
+                                calories: Math.round((food.calories || 0) * factor),
+                                proteinG: Number(((food.proteinG || 0) * factor).toFixed(1)),
+                                carbsG: Number(((food.carbsG || 0) * factor).toFixed(1)),
+                                fatsG: Number(((food.fatsG || 0) * factor).toFixed(1)),
+                                isEaten: false,
+                                isOptional: Boolean(mealInfo.isOptional),
+                                notes: item.notes || ''
+                            });
+                        });
+                    });
+                }
+            }
+
+            this.memoryState.nutrition.days[dateStr] = {
+                date: dateStr,
+                totalCalories: 0,
+                totalProteinG: 0,
+                totalCarbsG: 0,
+                totalFatsG: 0,
+                waterMl: 0,
+                steps: 0,
+                sleepHours: 0,
+                energyLevel: 'NORMAL',
+                energyNotes: '',
+                cardioMinutes: 0,
+                cardioType: 'Incline Walking',
+                cardioCompleted: false,
+                gymStatus: 'PENDING',
+                checklist: {
+                    follow_breakfast: false,
+                    follow_lunch: false,
+                    preworkout_nutrition: false,
+                    gym_completed: false,
+                    postworkout_protein: false,
+                    follow_dinner: false,
+                    water_target: false,
+                    steps_target: false,
+                    cardio_completed: false,
+                    sleep_target: false,
+                    weight_logged: false
+                },
+                coffeeCups: 0,
+                meals: templateMeals
+            };
+            this.save();
+        }
+
+        return this.memoryState.nutrition.days[dateStr];
+    }
+
+    saveNutritionDay(dateStr, data) {
+        if (!dateStr) return;
+        const current = this.getNutritionDay(dateStr);
+        this.memoryState.nutrition.days[dateStr] = {
+            ...current,
+            ...data,
+            date: dateStr,
+            updatedAt: new Date().toISOString()
+        };
+        this.save();
+        return this.memoryState.nutrition.days[dateStr];
+    }
+
+    logNutritionMeal(dateStr, mealEntry) {
+        const day = this.getNutritionDay(dateStr);
+        if (!Array.isArray(day.meals)) day.meals = [];
+
+        // Chicken rejection
+        if (/chicken/i.test(mealEntry.foodName || '') || /chicken/i.test(mealEntry.foodId || '')) {
+            return { error: 'Chicken is strictly excluded.' };
+        }
+
+        const existingIdx = day.meals.findIndex(m => m.id === mealEntry.id);
+        if (existingIdx >= 0) {
+            day.meals[existingIdx] = { ...day.meals[existingIdx], ...mealEntry };
+        } else {
+            if (!mealEntry.id) mealEntry.id = 'meal_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4);
+            day.meals.push(mealEntry);
+        }
+
+        // Recalculate daily totals
+        this._recalculateDayTotals(day);
+
+        // Checklist synchronization
+        if (mealEntry.isEaten) {
+            if (mealEntry.mealType === 'breakfast') day.checklist.follow_breakfast = true;
+            if (mealEntry.mealType === 'lunch') day.checklist.follow_lunch = true;
+            if (mealEntry.mealType === 'pre_workout') day.checklist.preworkout_nutrition = true;
+            if (mealEntry.mealType === 'post_workout') day.checklist.postworkout_protein = true;
+            if (mealEntry.mealType === 'dinner') day.checklist.follow_dinner = true;
+        }
+
+        this.save();
+        return day;
+    }
+
+    deleteNutritionMeal(dateStr, mealId) {
+        const day = this.getNutritionDay(dateStr);
+        if (Array.isArray(day.meals)) {
+            day.meals = day.meals.filter(m => m.id !== mealId);
+            this._recalculateDayTotals(day);
+            this.save();
+        }
+        return day;
+    }
+
+    swapNutritionMeal(dateStr, mealId, newFoodData) {
+        const day = this.getNutritionDay(dateStr);
+        const idx = (day.meals || []).findIndex(m => m.id === mealId);
+        if (idx >= 0) {
+            const old = day.meals[idx];
+            day.meals[idx] = {
+                ...old,
+                ...newFoodData,
+                swappedFrom: old.foodName || old.foodId,
+                id: old.id
+            };
+            this._recalculateDayTotals(day);
+            this.save();
+        }
+        return day;
+    }
+
+    _recalculateDayTotals(day) {
+        let cals = 0;
+        let protein = 0;
+        let carbs = 0;
+        let fats = 0;
+
+        (day.meals || []).forEach(m => {
+            if (m.isEaten) {
+                cals += Number(m.calories) || 0;
+                protein += Number(m.proteinG) || 0;
+                carbs += Number(m.carbsG) || 0;
+                fats += Number(m.fatsG) || 0;
+            }
+        });
+
+        day.totalCalories = Math.round(cals);
+        day.totalProteinG = Number(protein.toFixed(1));
+        day.totalCarbsG = Number(carbs.toFixed(1));
+        day.totalFatsG = Number(fats.toFixed(1));
+    }
+
+    logNutritionWater(dateStr, amountMl, mode = 'add') {
+        const day = this.getNutritionDay(dateStr);
+        const target = this.getNutritionProfile().dailyWaterTargetMl || 3000;
+
+        if (mode === 'set') {
+            day.waterMl = Math.max(0, Number(amountMl));
+        } else {
+            day.waterMl = Math.max(0, (day.waterMl || 0) + Number(amountMl));
+        }
+
+        if (day.waterMl >= target) {
+            if (!day.checklist) day.checklist = {};
+            day.checklist.water_target = true;
+        }
+        this.save();
+        return day.waterMl;
+    }
+
+    logNutritionSteps(dateStr, steps) {
+        const day = this.getNutritionDay(dateStr);
+        const target = this.getNutritionProfile().dailyStepTarget || 9000;
+        day.steps = Math.max(0, Number(steps) || 0);
+
+        if (day.steps >= target) {
+            if (!day.checklist) day.checklist = {};
+            day.checklist.steps_target = true;
+        }
+        this.save();
+        return day.steps;
+    }
+
+    logNutritionCardio(dateStr, minutes, type = 'Incline Walking', completed = true) {
+        const day = this.getNutritionDay(dateStr);
+        day.cardioMinutes = Math.max(0, Number(minutes) || 0);
+        day.cardioType = type;
+        day.cardioCompleted = Boolean(completed);
+
+        if (completed && day.cardioMinutes > 0) {
+            if (!day.checklist) day.checklist = {};
+            day.checklist.cardio_completed = true;
+        }
+        this.save();
+        return day;
+    }
+
+    logNutritionEnergy(dateStr, level, notes = '') {
+        const day = this.getNutritionDay(dateStr);
+        day.energyLevel = level;
+        day.energyNotes = notes;
+        this.save();
+        return day;
+    }
+
+    logNutritionWeight(dateStr, weightKg, notes = '') {
+        const num = Number(Number(weightKg).toFixed(2));
+        if (!num || isNaN(num) || num < 35 || num > 250) return null;
+
+        if (!this.memoryState.nutrition) this.memoryState.nutrition = {};
+        if (!Array.isArray(this.memoryState.nutrition.weightLogs)) this.memoryState.nutrition.weightLogs = [];
+
+        const logs = this.memoryState.nutrition.weightLogs;
+        const existingIdx = logs.findIndex(w => w.date === dateStr);
+        const entry = {
+            date: dateStr,
+            weightKg: num,
+            notes,
+            createdAt: new Date().toISOString()
+        };
+
+        if (existingIdx >= 0) {
+            logs[existingIdx] = entry;
+        } else {
+            logs.push(entry);
+        }
+
+        // Sort ascending by date
+        logs.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+        // Compute 7-day rolling average for every entry
+        for (let i = 0; i < logs.length; i++) {
+            const windowSlice = logs.slice(Math.max(0, i - 6), i + 1);
+            const sum = windowSlice.reduce((acc, curr) => acc + curr.weightKg, 0);
+            logs[i].rolling7dAvg = Number((sum / windowSlice.length).toFixed(2));
+        }
+
+        const latest = logs[logs.length - 1];
+        this.getNutritionProfile().currentWeightKg = latest.weightKg;
+
+        const day = this.getNutritionDay(dateStr);
+        if (!day.checklist) day.checklist = {};
+        day.checklist.weight_logged = true;
+
+        this.save();
+        return latest;
+    }
+
+    getNutritionWeightHistory() {
+        if (!this.memoryState.nutrition || !Array.isArray(this.memoryState.nutrition.weightLogs)) return [];
+        return [...this.memoryState.nutrition.weightLogs].sort((a, b) => new Date(a.date) - new Date(b.date));
+    }
+
+    logNutritionWaist(dateStr, waistInches, notes = '') {
+        const num = Number(Number(waistInches).toFixed(2));
+        if (!num || isNaN(num) || num < 15 || num > 80) return null;
+
+        if (!this.memoryState.nutrition) this.memoryState.nutrition = {};
+        if (!Array.isArray(this.memoryState.nutrition.waistLogs)) this.memoryState.nutrition.waistLogs = [];
+
+        const logs = this.memoryState.nutrition.waistLogs;
+        const existingIdx = logs.findIndex(w => w.date === dateStr);
+        const entry = {
+            date: dateStr,
+            waistInches: num,
+            notes,
+            createdAt: new Date().toISOString()
+        };
+
+        if (existingIdx >= 0) {
+            logs[existingIdx] = entry;
+        } else {
+            logs.push(entry);
+        }
+
+        logs.sort((a, b) => new Date(a.date) - new Date(b.date));
+        this.save();
+        return entry;
+    }
+
+    getNutritionWaistHistory() {
+        if (!this.memoryState.nutrition || !Array.isArray(this.memoryState.nutrition.waistLogs)) return [];
+        return [...this.memoryState.nutrition.waistLogs].sort((a, b) => new Date(a.date) - new Date(b.date));
+    }
+
+    saveCustomFoodOverride(foodKey, data) {
+        if (!this.memoryState.nutrition) this.memoryState.nutrition = {};
+        if (!this.memoryState.nutrition.customFoods) this.memoryState.nutrition.customFoods = {};
+
+        this.memoryState.nutrition.customFoods[foodKey] = {
+            foodKey,
+            ...data,
+            updatedAt: new Date().toISOString()
+        };
+        this.save();
+        return this.memoryState.nutrition.customFoods[foodKey];
+    }
+
+    getNutritionStreaks() {
+        const days = Object.values(this.memoryState.nutrition?.days || {}).sort((a, b) => new Date(b.date) - new Date(a.date));
+        const profile = this.getNutritionProfile();
+        let loggingStreak = 0;
+        let proteinStreak = 0;
+        let hydrationStreak = 0;
+        let stepStreak = 0;
+
+        for (const d of days) {
+            if (d.totalCalories > 0 || (d.meals && d.meals.some(m => m.isEaten))) {
+                loggingStreak++;
+            } else break;
+        }
+
+        for (const d of days) {
+            if (d.totalProteinG >= (profile.dailyProteinTargetG * 0.9)) {
+                proteinStreak++;
+            } else break;
+        }
+
+        for (const d of days) {
+            if (d.waterMl >= (profile.dailyWaterTargetMl * 0.9)) {
+                hydrationStreak++;
+            } else break;
+        }
+
+        for (const d of days) {
+            if (d.steps >= (profile.dailyStepTarget * 0.9)) {
+                stepStreak++;
+            } else break;
+        }
+
+        return { loggingStreak, proteinStreak, hydrationStreak, stepStreak };
+    }
+
+    getWeeklyNutritionSummary(endDateStr) {
+        const profile = this.getNutritionProfile();
+        const weights = this.getNutritionWeightHistory();
+        const waists = this.getNutritionWaistHistory();
+        const allDays = Object.values(this.memoryState.nutrition?.days || {});
+
+        const rulesEngine = typeof NutritionProgressRules !== 'undefined'
+            ? NutritionProgressRules
+            : (typeof window !== 'undefined' && window.NutritionProgressRules ? window.NutritionProgressRules : null);
+
+        if (rulesEngine) {
+            return rulesEngine.evaluateProgress(profile, weights, waists, allDays);
+        }
+
+        return {
+            status: 'ON_TRACK',
+            current7dAvg: profile.currentWeightKg,
+            recommendations: ['Maintain your current plan. Consistency drives fat loss.']
+        };
     }
 }
 

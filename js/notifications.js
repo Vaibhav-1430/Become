@@ -173,6 +173,61 @@ const NotificationManager = {
                 this.showSundayTestAlertToast();
             }
         }
+
+        // ---------------------------------------------------------------------
+        // STUDYOS FITNESS & NUTRITION ENGINE REMINDERS (Requirement 16)
+        // ---------------------------------------------------------------------
+        // 7. Morning Nutrition: 08:30 AM
+        if (timeIST === '08:30' && settings.notifyNutritionBreakfast !== false) {
+            const key = `${todayStr}_0830_nutrition_breakfast`;
+            if (!this.lastFiredKeys.has(key)) {
+                this.lastFiredKeys.add(key);
+                this.sendNotification("🥣 Morning Nutrition — Breakfast + Protein Oats", "Time for breakfast: Chocolate protein oats + coffee + banana to fuel your focus.");
+                this.showNutritionAlertToast("🥣 BREAKFAST & PROTEIN OATS (08:30)", "Fuel up with protein oats, banana and coffee for morning mental endurance.", "nutrition");
+            }
+        }
+
+        // 8. Pre-Workout Nutrition: 05:30 PM (17:30)
+        if (timeIST === '17:30' && settings.notifyNutritionPreWorkout !== false) {
+            const key = `${todayStr}_1730_nutrition_preworkout`;
+            if (!this.lastFiredKeys.has(key)) {
+                this.lastFiredKeys.add(key);
+                this.sendNotification("🍌 Pre-Workout Nutrition", "Gym in 45-60 min: Banana + coffee + 600ml water (optional 2 bread slices if energy is low).");
+                this.showNutritionAlertToast("🍌 PRE-WORKOUT FUEL (17:30)", "Banana + coffee + water. Add 2 bread slices if feeling fatigued.", "nutrition");
+            }
+        }
+
+        // 9. Post-Workout Protein: 07:30 PM (19:30)
+        if (timeIST === '19:30' && settings.notifyNutritionPostWorkout !== false) {
+            const key = `${todayStr}_1930_nutrition_postworkout`;
+            if (!this.lastFiredKeys.has(key)) {
+                this.lastFiredKeys.add(key);
+                this.sendNotification("💪 Post-Workout Protein Refuel", "Refuel with Eggs (3 whole + 2 whites) or 50–60g DRY Soy Chunks to preserve lean muscle.");
+                this.showNutritionAlertToast("💪 POST-WORKOUT PROTEIN (19:30)", "Post-workout refuel: Eggs or 50-60g DRY soy chunks (~26-30g protein).", "nutrition");
+            }
+        }
+
+        // 10. Evening Daily Steps Check: 08:30 PM (20:30)
+        if (timeIST === '20:30' && settings.notifyNutritionSteps !== false) {
+            const key = `${todayStr}_2030_nutrition_steps`;
+            if (!this.lastFiredKeys.has(key)) {
+                this.lastFiredKeys.add(key);
+                const dayLog = Store.getNutritionDay ? Store.getNutritionDay(todayStr) : null;
+                const currentSteps = dayLog ? dayLog.steps : 0;
+                this.sendNotification("👟 Daily Steps Check", `Current steps: ${currentSteps.toLocaleString()} / 9,000 target. A 15-min campus walk can close the gap.`);
+                this.showNutritionAlertToast("👟 CHECK TODAY'S STEPS (20:30)", `Current: ${currentSteps.toLocaleString()} steps. Target: 8k-10k.`, "nutrition");
+            }
+        }
+
+        // 11. Night Nutrition & Weight Logging: 10:30 PM (22:30)
+        if (timeIST === '22:30' && settings.notifyNutritionLog !== false) {
+            const key = `${todayStr}_2230_nutrition_night`;
+            if (!this.lastFiredKeys.has(key)) {
+                this.lastFiredKeys.add(key);
+                this.sendNotification("🥗 Log Today's Nutrition & Daily Check", "Review today's protein target, water, and log body weight if not done.");
+                this.showNutritionAlertToast("🥗 NIGHT NUTRITION REVIEW (22:30)", "Complete today's nutrition log, checklist, and ensure 7-9h sleep.", "nutrition");
+            }
+        }
     },
 
     showSundayTestAlertToast() {
@@ -220,6 +275,31 @@ const NotificationManager = {
                 setTimeout(() => toast.remove(), 300);
             }
         }, 25000);
+    },
+
+    showNutritionAlertToast(title, details, targetView = 'nutrition') {
+        const container = document.getElementById('toastContainer');
+        if (!container) return;
+
+        const toast = document.createElement('div');
+        toast.className = 'toast study-alert-toast nutrition-alert-toast';
+        toast.innerHTML = `
+            <div style="flex: 1;">
+                <div style="font-weight: 800; color: #10b981; font-size: 14px;">${title}</div>
+                <div style="font-size: 12px; color: var(--text-secondary); margin: 4px 0; white-space: pre-line;">${details}</div>
+            </div>
+            <button class="btn-primary" style="padding: 6px 12px; font-size: 12px; background: #10b981; border-color: #10b981;" onclick="App.switchView('${targetView}'); this.closest('.toast').remove();">
+                Open Nutrition 🥗
+            </button>
+        `;
+        container.appendChild(toast);
+
+        setTimeout(() => {
+            if (toast.parentNode) {
+                toast.style.opacity = '0';
+                setTimeout(() => toast.remove(), 300);
+            }
+        }, 20000);
     }
 };
 

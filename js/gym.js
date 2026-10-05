@@ -100,6 +100,9 @@ const GymEngine = {
                 <button class="ls-tab-btn ${this.activeLifestyleTab === 'gym' ? 'active' : ''}" onclick="GymEngine.switchLifestyleTab('gym')">
                     🏋️ Gym & Workouts
                 </button>
+                <button class="ls-tab-btn" onclick="App.switchView('nutrition')" style="border: 1px solid rgba(16,185,129,0.35); background: rgba(16,185,129,0.1); color: #34d399; font-weight: 600;">
+                    🥗 Strict Diet & Fat Loss
+                </button>
                 <button class="ls-tab-btn ${this.activeLifestyleTab === 'food' ? 'active' : ''}" onclick="GymEngine.switchLifestyleTab('food')">
                     🥣 Post-Workout Food
                 </button>
@@ -2416,6 +2419,19 @@ const GymEngine = {
     // -------------------------------------------------------------------------
     renderFoodPreservedHtml() {
         return `
+            <div style="background: linear-gradient(135deg, rgba(16, 185, 129, 0.12), rgba(6, 78, 59, 0.2)); border: 1px solid rgba(16, 185, 129, 0.35); border-radius: 12px; padding: 14px 18px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <span style="font-size: 28px;">🥗</span>
+                    <div>
+                        <div style="font-size: 14.5px; font-weight: 700; color: #34d399;">Strict 7-Day Hostel Fat Loss & Nutrition System</div>
+                        <div style="font-size: 12.5px; color: var(--text-secondary); margin-top: 2px;">92 kg → 87 kg Milestone · 2,250 kcal · 150g Protein · Eggs/Soy/Paneer/Oats · Weekly Trend Analysis</div>
+                    </div>
+                </div>
+                <button class="btn-primary" onclick="App.switchView('nutrition')" style="padding: 8px 18px; font-size: 12.5px; background: #059669; border-color: #10b981;">
+                    Open Full Nutrition Engine ➔
+                </button>
+            </div>
+
             <div class="hero-banner">
                 <div class="hero-content">
                     <h3>🥣 Hostel Post-Workout Kitchen</h3>

@@ -204,6 +204,9 @@ const App = {
         if (typeof GymEngine !== 'undefined') {
             GymEngine.init();
         }
+        if (typeof NutritionEngine !== 'undefined') {
+            NutritionEngine.init();
+        }
         if (typeof AIEngine !== 'undefined' && AIEngine.init) {
             AIEngine.init();
         }
@@ -421,6 +424,7 @@ const App = {
             gate: "GATE 2027 Study Planner & Command",
             mistakes: "Mistake Bank & Knowledge Weakness Map",
             food: "Gym, Workouts & Lifestyle Command",
+            nutrition: "Hostel Fat Loss & Nutrition Engine",
             placement: "Placement Preparation Command",
             internship: "Internship Application Tracker",
             stats: "Progress Analytics & Streaks"
@@ -458,6 +462,9 @@ const App = {
         else if (viewName === 'food') {
             if (typeof GymEngine !== 'undefined') GymEngine.render();
             else this.renderFoodView();
+        }
+        else if (viewName === 'nutrition') {
+            if (typeof NutritionEngine !== 'undefined') NutritionEngine.render();
         }
         else if (viewName === 'placement') this.renderPlacementView();
         else if (viewName === 'internship') this.renderInternshipView();
@@ -709,6 +716,12 @@ const App = {
         // Render Tonight's GATE Directive Card
         if (typeof GatePlannerEngine !== 'undefined') {
             GatePlannerEngine.renderTodayCard();
+        }
+
+        // Render Today's Fitness & Nutrition Widget
+        const nutritionWidgetContainer = document.getElementById('todayNutritionWidget');
+        if (nutritionWidgetContainer && typeof NutritionEngine !== 'undefined') {
+            nutritionWidgetContainer.innerHTML = NutritionEngine.renderTodayWidget();
         }
 
         // 3. Render Post-Workout Recipe Widget

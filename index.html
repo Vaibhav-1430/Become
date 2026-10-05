@@ -335,6 +335,10 @@
                     <span class="nav-icon">🏋️</span>
                     <span>Gym & Lifestyle</span>
                 </button>
+                <button class="nav-link" data-view="nutrition">
+                    <span class="nav-icon">🥗</span>
+                    <span>Nutrition & Fat Loss</span>
+                </button>
 
                 <div class="sidebar-nav-group-label">CAREER & PROGRESS</div>
                 <button class="nav-link" data-view="placement">
@@ -548,6 +552,9 @@
 
             <!-- TODAY'S AI ADAPTIVE COMMAND CARD (Part 11) -->
             <div id="todayAiDashboardWidget" style="margin-bottom: 24px;"></div>
+
+            <!-- TODAY'S FITNESS & NUTRITION ENGINE WIDGET -->
+            <div id="todayNutritionWidget" style="margin-bottom: 24px;"></div>
 
             <!-- 1. COMPACT STUDY RECOVERY CONTROL PANEL -->
             <div class="study-recovery-card">
@@ -788,6 +795,9 @@
             </div>
             <div class="placement-topics-grid" id="allRecipesCatalogGrid"></div>
         </section>
+
+        <!-- VIEW: FITNESS & NUTRITION ENGINE -->
+        <section id="view-nutrition" class="view-section"></section>
 
         <!-- VIEW 6: PLACEMENT HUB & CELEBRATION -->
         <!-- VIEW 6: PLACEMENT HUB & CELEBRATION -->
@@ -2104,6 +2114,7 @@
 <script src="data/test-questions.js"></script>
 <script src="data/schedule.js"></script>
 <script src="data/dev-data.js"></script>
+<script src="data/nutrition-data.js"></script>
 <script src="js/vendor/supabase.js"></script>
 <script src="js/supabase-service.js"></script>
 <script src="js/sync-engine.js"></script>
@@ -2125,6 +2136,7 @@
 <script src="js/mistakes.js"></script>
 <script src="js/gate-planner.js"></script>
 <script src="js/gym.js"></script>
+<script src="js/nutrition.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

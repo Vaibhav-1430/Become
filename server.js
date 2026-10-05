@@ -41,6 +41,79 @@ function loadEnv(force = false) {
 }
 loadEnv();
 
+const {
+    NUTRITION_FOOD_DATABASE,
+    FOOD_SUBSTITUTIONS,
+    HOSTEL_WEEKLY_DIET_PLAN,
+    CARDIO_PROGRAM,
+    NutritionProgressRules
+} = require('./data/nutrition-data.js');
+
+const NUTRITION_STORE_FILE = path.join(__dirname, 'data', 'nutrition_store.json');
+
+function readNutritionStore() {
+    try {
+        if (!fs.existsSync(NUTRITION_STORE_FILE)) return {};
+        const raw = fs.readFileSync(NUTRITION_STORE_FILE, 'utf8');
+        return JSON.parse(raw || '{}');
+    } catch (e) {
+        return {};
+    }
+}
+
+function writeNutritionStore(data) {
+    try {
+        const dataDir = path.join(__dirname, 'data');
+        if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
+        fs.writeFileSync(NUTRITION_STORE_FILE, JSON.stringify(data, null, 2), { encoding: 'utf8', mode: 0o600 });
+        return true;
+    } catch (e) {
+        console.error('Failed to write nutrition store file:', e.message);
+        return false;
+    }
+}
+
+function getUserNutritionStore(userId) {
+    if (!userId) return null;
+    const store = readNutritionStore();
+    if (!store[userId]) {
+        store[userId] = {
+            profile: {
+                userId,
+                age: 20,
+                heightCm: 170.0,
+                startingWeightKg: 92.0,
+                currentWeightKg: 92.0,
+                goalWeightKg: 82.0,
+                currentMilestoneKg: 87.0,
+                dailyCalorieTarget: 2250,
+                dailyProteinTargetG: 150,
+                dailyWaterTargetMl: 3000,
+                dailyStepTarget: 9000,
+                cardioSessionsPerWeek: 3,
+                cardioDurationMinutes: 25,
+                cardioPhase: 'WEEK_1_2',
+                dietConstraints: ['NO_CHICKEN'],
+                availableProteinSources: ['eggs', 'soy_chunks', 'paneer', 'tofu', 'dal', 'curd', 'milk', 'protein_oats', 'whey_optional'],
+                macroSplits: { carbsG: 240, fatsG: 65, proteinG: 150 }
+            },
+            days: {},
+            weightLogs: [],
+            waistLogs: [],
+            customFoods: {}
+        };
+        writeNutritionStore(store);
+    }
+    return store[userId];
+}
+
+function saveUserNutritionStore(userId, userData) {
+    if (!userId) return false;
+    const store = readNutritionStore();
+    store[userId] = userData;
+    return writeNutritionStore(store);
+}
+
 // ----------------------------------------------------
 // TRUE BYOK: Server-Side Cryptographic Security Layer
 // ----------------------------------------------------
@@ -1464,6 +1537,800 @@ Analyze this data and return the structured recommendation JSON now.`;
                 code: err.message === 'GEMINI_API_KEY_NOT_SET' ? 'KEY_MISSING' : 'API_ERROR',
                 fallback: true
             }));
+        }
+        return;
+    }
+
+    // ----------------------------------------------------
+    // STUDYOS FITNESS & NUTRITION ENGINE APIs
+    // ----------------------------------------------------
+
+    // 1. Get Canonical 7-Day Plan & Food Database
+    if (pathname === '/api/nutrition/plan' && req.method === 'GET') {
+        setCors();
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+            success: true,
+            plan: HOSTEL_WEEKLY_DIET_PLAN,
+            foods: NUTRITION_FOOD_DATABASE,
+            substitutions: FOOD_SUBSTITUTIONS,
+            cardio: CARDIO_PROGRAM
+        }));
+        return;
+    }
+
+    // Auth Helper for Nutrition APIs
+    const requireAuth = (callback) => {
+        const userId = extractUserId(req);
+        if (!userId) {
+            setCors();
+            res.writeHead(401, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+                success: false,
+                errorType: 'UNAUTHORIZED',
+                message: 'Authentication required. Please sign in to access StudyOS Nutrition Engine.',
+                status: 401
+            }));
+            return null;
+        }
+        return userId;
+    };
+
+    // 2. GET /api/nutrition/profile
+    if (pathname === '/api/nutrition/profile' && req.method === 'GET') {
+        const userId = requireAuth();
+        if (!userId) return;
+
+        const store = getUserNutritionStore(userId);
+        setCors();
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+            success: true,
+            profile: store.profile
+        }));
+        return;
+    }
+
+    // 3. PUT /api/nutrition/profile
+    if (pathname === '/api/nutrition/profile' && req.method === 'PUT') {
+        const userId = requireAuth();
+        if (!userId) return;
+
+        try {
+            const body = await readJson();
+            const store = getUserNutritionStore(userId);
+
+            // Validation: Prevent crash diet targets or unreasonable numbers
+            if (body.dailyCalorieTarget && (body.dailyCalorieTarget < 1500 || body.dailyCalorieTarget > 5000)) {
+                setCors();
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({
+                    success: false,
+                    error: 'Daily calorie target must be between 1,500 and 5,000 kcal to protect health, metabolic rate, and prevent crash dieting.'
+                }));
+                return;
+            }
+
+            if (body.dailyProteinTargetG && (body.dailyProteinTargetG < 40 || body.dailyProteinTargetG > 350)) {
+                setCors();
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({
+                    success: false,
+                    error: 'Daily protein target must be between 40g and 350g.'
+                }));
+                return;
+            }
+
+            // Enforce NO_CHICKEN constraint
+            const updatedDietConstraints = Array.isArray(body.dietConstraints)
+                ? [...new Set([...body.dietConstraints, 'NO_CHICKEN'])]
+                : (store.profile.dietConstraints || ['NO_CHICKEN']);
+
+            store.profile = {
+                ...store.profile,
+                ...body,
+                userId,
+                dietConstraints: updatedDietConstraints,
+                updatedAt: new Date().toISOString()
+            };
+
+            saveUserNutritionStore(userId, store);
+
+            setCors();
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+                success: true,
+                profile: store.profile,
+                message: 'Nutrition profile updated successfully.'
+            }));
+        } catch (err) {
+            setCors();
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: false, error: err.message }));
+        }
+        return;
+    }
+
+    // 4. GET /api/nutrition/today (Defaults to today's date)
+    if (pathname === '/api/nutrition/today' && req.method === 'GET') {
+        const userId = requireAuth();
+        if (!userId) return;
+
+        const dateParam = parsedUrl.searchParams.get('date') || new Date().toISOString().slice(0, 10);
+        const store = getUserNutritionStore(userId);
+        
+        let dayLog = store.days[dateParam];
+        if (!dayLog) {
+            dayLog = {
+                date: dateParam,
+                totalCalories: 0,
+                totalProteinG: 0,
+                totalCarbsG: 0,
+                totalFatsG: 0,
+                waterMl: 0,
+                steps: 0,
+                sleepHours: 0,
+                energyLevel: 'NORMAL',
+                energyNotes: '',
+                cardioMinutes: 0,
+                cardioType: 'Incline Walking',
+                cardioCompleted: false,
+                gymStatus: 'PENDING',
+                checklist: {},
+                coffeeCups: 0,
+                meals: []
+            };
+            store.days[dateParam] = dayLog;
+            saveUserNutritionStore(userId, store);
+        }
+
+        // Calculate remaining calories and protein
+        const remainingCalories = Math.max(0, (store.profile.dailyCalorieTarget || 2250) - dayLog.totalCalories);
+        const remainingProtein = Math.max(0, (store.profile.dailyProteinTargetG || 150) - dayLog.totalProteinG);
+
+        // Find today's weight log if available
+        const weightEntry = (store.weightLogs || []).find(w => w.date === dateParam);
+
+        setCors();
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+            success: true,
+            date: dateParam,
+            day: dayLog,
+            profile: store.profile,
+            targets: {
+                calories: store.profile.dailyCalorieTarget || 2250,
+                proteinG: store.profile.dailyProteinTargetG || 150,
+                waterMl: store.profile.dailyWaterTargetMl || 3000,
+                steps: store.profile.dailyStepTarget || 9000,
+                remainingCalories,
+                remainingProtein
+            },
+            weight: weightEntry ? weightEntry.weightKg : null,
+            rolling7dAvg: weightEntry ? weightEntry.rolling7dAvg : null
+        }));
+        return;
+    }
+
+    // 5. POST /api/nutrition/log (Save daily log parameters: water, steps, sleep, checklist)
+    if (pathname === '/api/nutrition/log' && req.method === 'POST') {
+        const userId = requireAuth();
+        if (!userId) return;
+
+        try {
+            const body = await readJson();
+            const dateStr = body.date || new Date().toISOString().slice(0, 10);
+            const store = getUserNutritionStore(userId);
+
+            if (!store.days[dateStr]) {
+                store.days[dateStr] = {
+                    date: dateStr,
+                    totalCalories: 0,
+                    totalProteinG: 0,
+                    totalCarbsG: 0,
+                    totalFatsG: 0,
+                    waterMl: 0,
+                    steps: 0,
+                    sleepHours: 0,
+                    energyLevel: 'NORMAL',
+                    energyNotes: '',
+                    cardioMinutes: 0,
+                    cardioType: 'Incline Walking',
+                    cardioCompleted: false,
+                    gymStatus: 'PENDING',
+                    checklist: {},
+                    coffeeCups: 0,
+                    meals: []
+                };
+            }
+
+            const current = store.days[dateStr];
+            if (body.waterMl !== undefined) current.waterMl = Math.max(0, Number(body.waterMl));
+            if (body.steps !== undefined) current.steps = Math.max(0, Number(body.steps));
+            if (body.sleepHours !== undefined) current.sleepHours = Math.max(0, Number(body.sleepHours));
+            if (body.energyLevel !== undefined) current.energyLevel = body.energyLevel;
+            if (body.energyNotes !== undefined) current.energyNotes = body.energyNotes;
+            if (body.cardioMinutes !== undefined) current.cardioMinutes = Math.max(0, Number(body.cardioMinutes));
+            if (body.cardioType !== undefined) current.cardioType = body.cardioType;
+            if (body.cardioCompleted !== undefined) current.cardioCompleted = Boolean(body.cardioCompleted);
+            if (body.gymStatus !== undefined) current.gymStatus = body.gymStatus;
+            if (body.checklist !== undefined) current.checklist = { ...(current.checklist || {}), ...body.checklist };
+            if (body.coffeeCups !== undefined) current.coffeeCups = Math.max(0, Number(body.coffeeCups));
+            if (body.notes !== undefined) current.notes = body.notes;
+
+            current.updatedAt = new Date().toISOString();
+            saveUserNutritionStore(userId, store);
+
+            setCors();
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+                success: true,
+                day: current
+            }));
+        } catch (err) {
+            setCors();
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: false, error: err.message }));
+        }
+        return;
+    }
+
+    // 6. POST /api/nutrition/meal-log (Log or swap meal item and recalculate)
+    if (pathname === '/api/nutrition/meal-log' && req.method === 'POST') {
+        const userId = requireAuth();
+        if (!userId) return;
+
+        try {
+            const body = await readJson();
+            const dateStr = body.date || new Date().toISOString().slice(0, 10);
+            const store = getUserNutritionStore(userId);
+
+            if (!store.days[dateStr]) {
+                store.days[dateStr] = {
+                    date: dateStr,
+                    totalCalories: 0,
+                    totalProteinG: 0,
+                    totalCarbsG: 0,
+                    totalFatsG: 0,
+                    waterMl: 0,
+                    steps: 0,
+                    sleepHours: 0,
+                    energyLevel: 'NORMAL',
+                    checklist: {},
+                    coffeeCups: 0,
+                    meals: []
+                };
+            }
+
+            const day = store.days[dateStr];
+            if (!Array.isArray(day.meals)) day.meals = [];
+
+            // Disallow chicken items
+            if (/chicken/i.test(body.foodName || '') || /chicken/i.test(body.foodId || '')) {
+                setCors();
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({
+                    success: false,
+                    error: 'Chicken is strictly excluded in your plan. Choose Eggs, Soy Chunks, Paneer, Tofu, or Dal instead.'
+                }));
+                return;
+            }
+
+            const mealEntry = {
+                id: body.id || ('meal_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5)),
+                mealType: body.mealType || 'lunch', // 'breakfast', 'lunch', 'pre_workout', 'post_workout', 'dinner', 'late_night'
+                foodId: body.foodId,
+                foodName: body.foodName,
+                portionDescription: body.portionDescription || '1 serving',
+                quantity: Number(body.quantity) || 1,
+                unit: body.unit || 'portion',
+                calories: Math.round(Number(body.calories) || 0),
+                proteinG: Number((Number(body.proteinG) || 0).toFixed(1)),
+                carbsG: Number((Number(body.carbsG) || 0).toFixed(1)),
+                fatsG: Number((Number(body.fatsG) || 0).toFixed(1)),
+                isEaten: body.isEaten !== undefined ? Boolean(body.isEaten) : true,
+                swappedFrom: body.swappedFrom || null,
+                notes: body.notes || ''
+            };
+
+            const existingIdx = day.meals.findIndex(m => m.id === mealEntry.id);
+            if (existingIdx >= 0) {
+                day.meals[existingIdx] = mealEntry;
+            } else {
+                day.meals.push(mealEntry);
+            }
+
+            // Recalculate daily totals from eaten meals
+            let sumCals = 0;
+            let sumProtein = 0;
+            let sumCarbs = 0;
+            let sumFats = 0;
+
+            day.meals.forEach(m => {
+                if (m.isEaten) {
+                    sumCals += m.calories || 0;
+                    sumProtein += m.proteinG || 0;
+                    sumCarbs += m.carbsG || 0;
+                    sumFats += m.fatsG || 0;
+                }
+            });
+
+            day.totalCalories = Math.round(sumCals);
+            day.totalProteinG = Number(sumProtein.toFixed(1));
+            day.totalCarbsG = Number(sumCarbs.toFixed(1));
+            day.totalFatsG = Number(sumFats.toFixed(1));
+
+            saveUserNutritionStore(userId, store);
+
+            setCors();
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+                success: true,
+                meal: mealEntry,
+                dayTotals: {
+                    totalCalories: day.totalCalories,
+                    totalProteinG: day.totalProteinG,
+                    totalCarbsG: day.totalCarbsG,
+                    totalFatsG: day.totalFatsG,
+                    remainingCalories: Math.max(0, (store.profile.dailyCalorieTarget || 2250) - day.totalCalories),
+                    remainingProtein: Math.max(0, (store.profile.dailyProteinTargetG || 150) - day.totalProteinG)
+                }
+            }));
+        } catch (err) {
+            setCors();
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: false, error: err.message }));
+        }
+        return;
+    }
+
+    // 7. POST /api/nutrition/water (Quick add or set water)
+    if (pathname === '/api/nutrition/water' && req.method === 'POST') {
+        const userId = requireAuth();
+        if (!userId) return;
+
+        try {
+            const body = await readJson();
+            const dateStr = body.date || new Date().toISOString().slice(0, 10);
+            const amountMl = Number(body.amountMl) || 0;
+            const mode = body.mode || 'add'; // 'add' | 'set'
+
+            const store = getUserNutritionStore(userId);
+            if (!store.days[dateStr]) {
+                store.days[dateStr] = {
+                    date: dateStr,
+                    totalCalories: 0,
+                    totalProteinG: 0,
+                    totalCarbsG: 0,
+                    totalFatsG: 0,
+                    waterMl: 0,
+                    steps: 0,
+                    checklist: {}
+                };
+            }
+
+            const day = store.days[dateStr];
+            if (mode === 'set') {
+                day.waterMl = Math.max(0, amountMl);
+            } else {
+                day.waterMl = Math.max(0, (day.waterMl || 0) + amountMl);
+            }
+
+            // Check water checklist if target met
+            if (day.waterMl >= (store.profile.dailyWaterTargetMl || 3000)) {
+                if (!day.checklist) day.checklist = {};
+                day.checklist.water_target = true;
+            }
+
+            saveUserNutritionStore(userId, store);
+
+            setCors();
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+                success: true,
+                waterMl: day.waterMl,
+                targetMl: store.profile.dailyWaterTargetMl || 3000,
+                progressPct: Math.min(100, Math.round((day.waterMl / (store.profile.dailyWaterTargetMl || 3000)) * 100))
+            }));
+        } catch (err) {
+            setCors();
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: false, error: err.message }));
+        }
+        return;
+    }
+
+    // 8. POST /api/nutrition/steps (Quick step logging)
+    if (pathname === '/api/nutrition/steps' && req.method === 'POST') {
+        const userId = requireAuth();
+        if (!userId) return;
+
+        try {
+            const body = await readJson();
+            const dateStr = body.date || new Date().toISOString().slice(0, 10);
+            const steps = Math.max(0, Number(body.steps) || 0);
+
+            const store = getUserNutritionStore(userId);
+            if (!store.days[dateStr]) {
+                store.days[dateStr] = {
+                    date: dateStr,
+                    totalCalories: 0,
+                    totalProteinG: 0,
+                    waterMl: 0,
+                    steps: 0,
+                    checklist: {}
+                };
+            }
+
+            const day = store.days[dateStr];
+            day.steps = steps;
+
+            if (steps >= (store.profile.dailyStepTarget || 9000)) {
+                if (!day.checklist) day.checklist = {};
+                day.checklist.steps_target = true;
+            }
+
+            saveUserNutritionStore(userId, store);
+
+            setCors();
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+                success: true,
+                steps: day.steps,
+                targetSteps: store.profile.dailyStepTarget || 9000,
+                progressPct: Math.min(100, Math.round((day.steps / (store.profile.dailyStepTarget || 9000)) * 100))
+            }));
+        } catch (err) {
+            setCors();
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: false, error: err.message }));
+        }
+        return;
+    }
+
+    // 8b. POST /api/nutrition/cardio (Cardio session logging)
+    if (pathname === '/api/nutrition/cardio' && req.method === 'POST') {
+        const userId = requireAuth();
+        if (!userId) return;
+
+        try {
+            const body = await readJson();
+            const dateStr = body.date || new Date().toISOString().slice(0, 10);
+            const minutes = Math.max(0, Number(body.minutes) || 0);
+            const type = body.type || 'Incline Walking';
+            const completed = body.completed !== undefined ? Boolean(body.completed) : true;
+
+            const store = getUserNutritionStore(userId);
+            if (!store.days[dateStr]) {
+                store.days[dateStr] = {
+                    date: dateStr,
+                    totalCalories: 0,
+                    totalProteinG: 0,
+                    waterMl: 0,
+                    steps: 0,
+                    cardioMinutes: 0,
+                    cardioType: type,
+                    cardioCompleted: false,
+                    checklist: {}
+                };
+            }
+
+            const day = store.days[dateStr];
+            day.cardioMinutes = minutes;
+            day.cardioType = type;
+            day.cardioCompleted = completed;
+
+            if (completed && minutes > 0) {
+                if (!day.checklist) day.checklist = {};
+                day.checklist.cardio_completed = true;
+            }
+
+            saveUserNutritionStore(userId, store);
+
+            setCors();
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+                success: true,
+                day
+            }));
+        } catch (err) {
+            setCors();
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: false, error: err.message }));
+        }
+        return;
+    }
+
+    // 9. POST /api/nutrition/energy (Energy level monitor & safety guidance)
+    if (pathname === '/api/nutrition/energy' && req.method === 'POST') {
+        const userId = requireAuth();
+        if (!userId) return;
+
+        try {
+            const body = await readJson();
+            const dateStr = body.date || new Date().toISOString().slice(0, 10);
+            const level = body.level || 'NORMAL'; // 'HIGH', 'NORMAL', 'LOW', 'VERY_LOW'
+            const notes = body.notes || '';
+
+            const store = getUserNutritionStore(userId);
+            if (!store.days[dateStr]) {
+                store.days[dateStr] = { date: dateStr, checklist: {} };
+            }
+
+            const day = store.days[dateStr];
+            day.energyLevel = level;
+            day.energyNotes = notes;
+
+            saveUserNutritionStore(userId, store);
+
+            // Safety & Energy Evaluation
+            let safetyAlert = null;
+            let guidance = null;
+
+            const isDangerous = /chest pain|faint|dizz|breathless|palpitation|blackout/i.test(notes);
+
+            if (level === 'VERY_LOW' && isDangerous) {
+                safetyAlert = '⚠️ CRITICAL SAFETY NOTICE: Do not push through this workout. Stop training immediately, rest in a seated or reclining position, hydrate, and seek medical attention if chest pain, severe dizziness, or shortness of breath persists.';
+            } else if (level === 'VERY_LOW' || level === 'LOW') {
+                guidance = 'Your training energy has been low. Check sleep duration (target 7–9h), hydration (3L), pre-workout food, and total calorie intake. Suggested pre-workout: 1 banana + black coffee + optional 2 bread slices 45 minutes before gym. Do not increase cardio until energy recovers.';
+            }
+
+            setCors();
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+                success: true,
+                energyLevel: level,
+                safetyAlert,
+                guidance
+            }));
+        } catch (err) {
+            setCors();
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: false, error: err.message }));
+        }
+        return;
+    }
+
+    // 10. POST /api/nutrition/weight (Daily weight logging & 7-day rolling average calculation)
+    if (pathname === '/api/nutrition/weight' && req.method === 'POST') {
+        const userId = requireAuth();
+        if (!userId) return;
+
+        try {
+            const body = await readJson();
+            const dateStr = body.date || new Date().toISOString().slice(0, 10);
+            const weightKg = Number(body.weightKg);
+
+            if (!weightKg || isNaN(weightKg) || weightKg < 35 || weightKg > 250) {
+                setCors();
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({
+                    success: false,
+                    error: 'Please enter a valid weight in kg (35 to 250 kg).'
+                }));
+                return;
+            }
+
+            const store = getUserNutritionStore(userId);
+            if (!Array.isArray(store.weightLogs)) store.weightLogs = [];
+
+            // Add or update entry for this date
+            const existingIdx = store.weightLogs.findIndex(w => w.date === dateStr);
+            const entry = {
+                date: dateStr,
+                weightKg: Number(weightKg.toFixed(2)),
+                notes: body.notes || '',
+                createdAt: new Date().toISOString()
+            };
+
+            if (existingIdx >= 0) {
+                store.weightLogs[existingIdx] = entry;
+            } else {
+                store.weightLogs.push(entry);
+            }
+
+            // Sort ascending by date
+            store.weightLogs.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+            // Compute rolling 7-day average for each entry
+            for (let i = 0; i < store.weightLogs.length; i++) {
+                const windowEntries = store.weightLogs.slice(Math.max(0, i - 6), i + 1);
+                const sum = windowEntries.reduce((acc, curr) => acc + curr.weightKg, 0);
+                store.weightLogs[i].rolling7dAvg = Number((sum / windowEntries.length).toFixed(2));
+            }
+
+            const latestLog = store.weightLogs[store.weightLogs.length - 1];
+            store.profile.currentWeightKg = latestLog.weightKg;
+
+            // Also check checklist on today's day log
+            if (store.days[dateStr]) {
+                if (!store.days[dateStr].checklist) store.days[dateStr].checklist = {};
+                store.days[dateStr].checklist.weight_logged = true;
+            }
+
+            saveUserNutritionStore(userId, store);
+
+            const startWeight = store.profile.startingWeightKg || 92.0;
+            const milestone = store.profile.currentMilestoneKg || 87.0;
+            const changeFromStart = Number((latestLog.weightKg - startWeight).toFixed(2));
+            const remainingToMilestone = Number(Math.max(0, latestLog.rolling7dAvg - milestone).toFixed(2));
+
+            setCors();
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+                success: true,
+                entry: latestLog,
+                stats: {
+                    currentWeight: latestLog.weightKg,
+                    rolling7dAvg: latestLog.rolling7dAvg,
+                    startingWeight: startWeight,
+                    currentMilestone: milestone,
+                    changeFromStart,
+                    remainingToMilestone,
+                    milestoneAchieved: latestLog.rolling7dAvg <= milestone
+                },
+                educationalNote: 'Daily scale weight naturally fluctuates by 1–2 kg due to water, glycogen, sodium, food volume, and lifting recovery. Rely primarily on your 7-day rolling average.'
+            }));
+        } catch (err) {
+            setCors();
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: false, error: err.message }));
+        }
+        return;
+    }
+
+    // 11. GET /api/nutrition/weight/history
+    if (pathname === '/api/nutrition/weight/history' && req.method === 'GET') {
+        const userId = requireAuth();
+        if (!userId) return;
+
+        const store = getUserNutritionStore(userId);
+        const weights = (store.weightLogs || []).sort((a, b) => new Date(a.date) - new Date(b.date));
+
+        setCors();
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+            success: true,
+            weights,
+            startingWeight: store.profile.startingWeightKg || 92.0,
+            currentMilestone: store.profile.currentMilestoneKg || 87.0
+        }));
+        return;
+    }
+
+    // 12. POST /api/nutrition/waist (Weekly waist measurement)
+    if (pathname === '/api/nutrition/waist' && req.method === 'POST') {
+        const userId = requireAuth();
+        if (!userId) return;
+
+        try {
+            const body = await readJson();
+            const dateStr = body.date || new Date().toISOString().slice(0, 10);
+            const waistInches = Number(body.waistInches);
+
+            if (!waistInches || isNaN(waistInches) || waistInches < 15 || waistInches > 80) {
+                setCors();
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({
+                    success: false,
+                    error: 'Please enter a valid waist circumference in inches (15 to 80 inches).'
+                }));
+                return;
+            }
+
+            const store = getUserNutritionStore(userId);
+            if (!Array.isArray(store.waistLogs)) store.waistLogs = [];
+
+            const existingIdx = store.waistLogs.findIndex(w => w.date === dateStr);
+            const entry = {
+                date: dateStr,
+                waistInches: Number(waistInches.toFixed(2)),
+                notes: body.notes || '',
+                createdAt: new Date().toISOString()
+            };
+
+            if (existingIdx >= 0) {
+                store.waistLogs[existingIdx] = entry;
+            } else {
+                store.waistLogs.push(entry);
+            }
+
+            store.waistLogs.sort((a, b) => new Date(a.date) - new Date(b.date));
+            saveUserNutritionStore(userId, store);
+
+            setCors();
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+                success: true,
+                entry,
+                history: store.waistLogs
+            }));
+        } catch (err) {
+            setCors();
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: false, error: err.message }));
+        }
+        return;
+    }
+
+    // 13. GET /api/nutrition/waist/history
+    if (pathname === '/api/nutrition/waist/history' && req.method === 'GET') {
+        const userId = requireAuth();
+        if (!userId) return;
+
+        const store = getUserNutritionStore(userId);
+        const waists = (store.waistLogs || []).sort((a, b) => new Date(a.date) - new Date(b.date));
+
+        setCors();
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+            success: true,
+            waists
+        }));
+        return;
+    }
+
+    // 14. GET /api/nutrition/progress (Rules-Based Weekly Progress Evaluation)
+    if (pathname === '/api/nutrition/progress' && req.method === 'GET') {
+        const userId = requireAuth();
+        if (!userId) return;
+
+        const store = getUserNutritionStore(userId);
+        const dailyLogs = Object.values(store.days || {});
+        const evaluation = NutritionProgressRules.evaluateProgress(
+            store.profile,
+            store.weightLogs || [],
+            store.waistLogs || [],
+            dailyLogs
+        );
+
+        setCors();
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+            success: true,
+            evaluation,
+            profile: store.profile
+        }));
+        return;
+    }
+
+    // 15. POST /api/nutrition/custom-food (Package label override for protein oats, etc.)
+    if (pathname === '/api/nutrition/custom-food' && req.method === 'POST') {
+        const userId = requireAuth();
+        if (!userId) return;
+
+        try {
+            const body = await readJson();
+            const foodKey = body.foodKey || 'protein_oats';
+            const store = getUserNutritionStore(userId);
+
+            if (!store.customFoods) store.customFoods = {};
+            store.customFoods[foodKey] = {
+                foodKey,
+                name: body.name || 'Custom Protein Oats',
+                brand: body.brand || '',
+                portionSize: Number(body.portionSize) || 50,
+                portionUnit: body.portionUnit || 'g',
+                calories: Math.round(Number(body.calories) || 195),
+                proteinG: Number((Number(body.proteinG) || 12.5).toFixed(1)),
+                carbsG: Number((Number(body.carbsG) || 28.0).toFixed(1)),
+                fatsG: Number((Number(body.fatsG) || 3.5).toFixed(1)),
+                updatedAt: new Date().toISOString()
+            };
+
+            saveUserNutritionStore(userId, store);
+
+            setCors();
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+                success: true,
+                customFood: store.customFoods[foodKey],
+                message: 'Custom food label override saved successfully.'
+            }));
+        } catch (err) {
+            setCors();
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: false, error: err.message }));
         }
         return;
     }
