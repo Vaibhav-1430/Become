@@ -2547,7 +2547,8 @@ class StorageManager {
             }
         });
 
-        const routineName = (s.workoutType || s.workout_type || s.routineName || 'Custom Workout').trim();
+        const rawRoutine = (s.workoutType || s.workout_type || s.routineName || '').toString().trim();
+        const routineName = (rawRoutine && rawRoutine !== 'undefined' && rawRoutine !== 'null') ? rawRoutine : 'Workout type not recorded';
         let durationMinutes = Number(s.durationMinutes ?? s.duration_minutes ?? s.duration ?? 0) || 0;
         const started = s.startedAt || s.started_at;
         const ended = s.endedAt || s.ended_at;

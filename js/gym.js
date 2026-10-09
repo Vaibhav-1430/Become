@@ -77,6 +77,18 @@ const GymEngine = {
         }
     },
 
+    exportProgressReport() {
+        if (typeof GymExportEngine !== 'undefined' && typeof GymExportEngine.openExportModal === 'function') {
+            GymExportEngine.openExportModal();
+        }
+    },
+
+    exportSingleWorkout(id) {
+        if (typeof GymExportEngine !== 'undefined' && typeof GymExportEngine.exportSingleWorkout === 'function') {
+            GymExportEngine.exportSingleWorkout(id);
+        }
+    },
+
     // -------------------------------------------------------------------------
     // Top-Level Lifestyle View Renderer (Gym, Food, Water, Sleep, etc.)
     // -------------------------------------------------------------------------
@@ -187,6 +199,9 @@ const GymEngine = {
                     </button>
                 </div>
                 <div class="gym-subnav-actions">
+                    <button id="btnGymExportReport" class="btn-gym-export-report" onclick="GymEngine.exportProgressReport()" title="Download professional gym progress report PDF">
+                        📄 DOWNLOAD PROGRESS REPORT
+                    </button>
                     <button id="btnGymRefresh" class="action-btn-ghost btn-gym-refresh" style="padding: 6px 12px; font-size: 12px;" onclick="GymEngine.refreshGymData()" title="Fetch latest workouts and plans from cloud">
                         ↻ REFRESH
                     </button>
@@ -281,12 +296,15 @@ const GymEngine = {
                                 ${muscleGroups.map(m => `<span class="twh-muscle-pill">${m}</span>`).join('')}
                             </div>
                         </div>
-                        <div style="display: flex; gap: 8px;">
+                        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
                             ${(completedSession.gym_photo_path || completedSession.gymPhoto?.storagePath || completedSession.gymPhoto?.url || completedSession.gym_photo_url || completedSession.gymPhoto?.base64) ? `
                                 <button class="btn-view-photo" onclick="GymEngine.viewSessionPhoto('${completedSession.id}')">
                                     📸 View Gym Photo
                                 </button>
                             ` : ''}
+                            <button class="action-btn-ghost btn-export-single-workout" onclick="GymEngine.exportSingleWorkout('${completedSession.id}')" title="Export this workout as PDF">
+                                📄 EXPORT WORKOUT PDF
+                            </button>
                             <button class="action-btn-ghost" onclick="GymEngine.viewSessionDetails('${completedSession.id}')">
                                 View Session Log ↗
                             </button>
@@ -1487,7 +1505,8 @@ const GymEngine = {
                     <div class="history-list">
                         ${sessions.map(s => {
                             const hasPhoto = !!(s.gym_photo_path || s.gymPhoto?.storagePath || s.gymPhoto?.url || s.gym_photo_url || s.gymPhoto?.base64);
-                            const wType = s.workoutType || s.routineName || 'Custom Workout';
+                            const rawWType = (s.workoutType || s.routineName || '').toString().trim();
+                            const wType = (rawWType && rawWType !== 'undefined' && rawWType !== 'null') ? rawWType : 'Workout type not recorded';
                             const dur = s.durationMinutes || s.duration || 0;
                             const exCount = s.exerciseCount || s.exercises?.length || 0;
                             const setCount = s.setCount || s.totalSets || 0;
@@ -1517,6 +1536,9 @@ const GymEngine = {
                                                 📸 VIEW PHOTO
                                             </button>
                                         ` : ''}
+                                        <button class="action-btn-ghost btn-export-single-workout" onclick="GymEngine.exportSingleWorkout('${s.id}')" title="Export this workout session as PDF">
+                                            📄 EXPORT PDF
+                                        </button>
                                         <button class="action-btn-ghost" onclick="GymEngine.viewSessionDetails('${s.id}')">
                                             VIEW WORKOUT ↗
                                         </button>
@@ -1723,11 +1745,16 @@ const GymEngine = {
                     </div>
                 </div>
 
-                <div class="modal-footer" style="display: flex; justify-content: space-between; padding: 16px;">
+                <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center; padding: 16px; flex-wrap: wrap; gap: 8px;">
                     <button class="action-btn-ghost danger btn-delete-workout" onclick="GymEngine.confirmDeleteWorkout('${s.id}')">
                         🗑️ Delete Workout
                     </button>
-                    <button class="btn-primary" onclick="document.getElementById('workoutSessionDetailModal').classList.remove('active')">Close</button>
+                    <div style="display: flex; gap: 8px;">
+                        <button class="action-btn-ghost btn-export-single-workout" onclick="GymEngine.exportSingleWorkout('${s.id}')">
+                            📄 EXPORT WORKOUT PDF
+                        </button>
+                        <button class="btn-primary" onclick="document.getElementById('workoutSessionDetailModal').classList.remove('active')">Close</button>
+                    </div>
                 </div>
             </div>
         `;
@@ -1754,7 +1781,8 @@ const GymEngine = {
             if (e.target === modal) modal.classList.remove('active');
         };
 
-        const wType = s.workoutType || s.routineName || 'Custom Workout';
+        const rawWType = (s.workoutType || s.routineName || '').toString().trim();
+        const wType = (rawWType && rawWType !== 'undefined' && rawWType !== 'null') ? rawWType : 'Workout type not recorded';
         const dur = s.durationMinutes || s.duration || 0;
         const sets = s.setCount || s.totalSets || 0;
         const vol = (s.totalVolumeKg || 0).toLocaleString();
