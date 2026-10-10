@@ -368,7 +368,10 @@ const GymEngine = {
         const todayInfo = Store.getTodayWorkoutTemplate();
         const templ = todayInfo.template;
         if (!templ || templ.isRestDay) {
-            showToast('Today is a scheduled Rest Day. You can use + LOG WORKOUT to select a routine.', 'info');
+            this.openSelectRoutineModal({
+                title: "TODAY IS A REST DAY",
+                subtitle: "You have a scheduled Rest Day. Select an optional workout routine to train today:"
+            });
             return;
         }
 
@@ -393,21 +396,84 @@ const GymEngine = {
         if (templ && !templ.isRestDay) {
             this.startWorkoutToday();
         } else {
-            const choices = [
-                { routineName: 'Back + Biceps', muscleGroups: ['Back', 'Biceps'] },
-                { routineName: 'Legs + Shoulders', muscleGroups: ['Legs', 'Shoulders'] },
-                { routineName: 'Chest + Triceps', muscleGroups: ['Chest', 'Triceps'] }
-            ];
-            const choice = prompt('Select workout routine to log:\n1. Back + Biceps\n2. Legs + Shoulders\n3. Chest + Triceps', '1');
-            if (!choice) return;
-            const idx = parseInt(choice.trim(), 10) - 1;
-            const sel = choices[idx] || choices[0];
-            this.openCheckInModal({
-                dayKey: 'custom',
-                routineName: sel.routineName,
-                targetMuscleGroups: sel.muscleGroups
+            this.openSelectRoutineModal({
+                title: "SELECT WORKOUT ROUTINE",
+                subtitle: "Select a workout routine to begin today's training:"
             });
         }
+    },
+
+    openSelectRoutineModal(options = {}) {
+        let modal = document.getElementById('selectRoutineModal');
+        if (!modal) {
+            modal = document.createElement('div');
+            modal.className = 'modal-overlay';
+            modal.id = 'selectRoutineModal';
+            document.body.appendChild(modal);
+        }
+
+        const title = options.title || "SELECT WORKOUT ROUTINE";
+        const subtitle = options.subtitle || "Select a workout routine to begin today's training:";
+
+        const routines = [
+            { routineName: 'Back + Biceps', muscleGroups: ['Back', 'Biceps'], icon: '⚡', desc: 'Pull-focused hypertrophy routine' },
+            { routineName: 'Legs + Shoulders', muscleGroups: ['Legs', 'Shoulders'], icon: '🦵', desc: 'Lower body foundation & deltoids' },
+            { routineName: 'Chest + Triceps', muscleGroups: ['Chest', 'Triceps'], icon: '🔥', desc: 'Push-focused hypertrophy routine' },
+            { routineName: 'Full Body', muscleGroups: ['Back', 'Chest', 'Legs', 'Shoulders', 'Biceps', 'Triceps'], icon: '🎯', desc: 'Compound whole-body session' }
+        ];
+
+        modal.innerHTML = `
+            <div class="modal-window" style="width: min(520px, 94vw);">
+                <div class="modal-header">
+                    <div>
+                        <span class="wizard-modal-eyebrow">WORKOUT SPLIT</span>
+                        <h3 class="wizard-modal-title">${title}</h3>
+                    </div>
+                    <button type="button" class="btn-close-modal" onclick="document.getElementById('selectRoutineModal').classList.remove('active')">×</button>
+                </div>
+                <div class="modal-body" style="padding: 18px 20px; display: flex; flex-direction: column; gap: 10px;">
+                    <p style="color: var(--text-secondary); margin: 0 0 6px 0; font-size: 13px;">${subtitle}</p>
+                    ${routines.map((r) => `
+                        <button
+                            type="button"
+                            class="picker-ex-item"
+                            style="text-align: left; cursor: pointer; border: 1px solid rgba(255, 255, 255, 0.1); padding: 14px 16px; background: rgba(255, 255, 255, 0.03); display: flex; justify-content: space-between; align-items: center;"
+                            onclick="GymEngine.selectRoutineAndProceed('${r.routineName}', '${r.muscleGroups.join(',')}')"
+                        >
+                            <div style="display: flex; align-items: center; gap: 12px;">
+                                <span style="font-size: 22px;">${r.icon}</span>
+                                <div>
+                                    <h4 style="margin: 0; color: #fff; font-size: 15px; font-weight: 700;">${r.routineName}</h4>
+                                    <span style="font-size: 11.5px; color: var(--text-muted);">${r.desc}</span>
+                                </div>
+                            </div>
+                            <span style="color: var(--gold); font-size: 13px; font-weight: 800;">START →</span>
+                        </button>
+                    `).join('')}
+                </div>
+                <div class="modal-footer" style="padding: 12px 20px; display: flex; justify-content: flex-end;">
+                    <button class="action-btn-ghost" onclick="document.getElementById('selectRoutineModal').classList.remove('active')">Cancel</button>
+                </div>
+            </div>
+        `;
+
+        modal.onclick = (e) => {
+            if (e.target === modal) modal.classList.remove('active');
+        };
+
+        modal.classList.add('active');
+    },
+
+    selectRoutineAndProceed(routineName, muscleGroupsStr) {
+        const modal = document.getElementById('selectRoutineModal');
+        if (modal) modal.classList.remove('active');
+
+        const muscleGroups = (muscleGroupsStr || '').split(',').map(s => s.trim()).filter(Boolean);
+        this.openCheckInModal({
+            dayKey: 'optional',
+            routineName,
+            targetMuscleGroups: muscleGroups
+        });
     },
 
     // -------------------------------------------------------------------------
@@ -714,6 +780,359 @@ const GymEngine = {
     },
 
     // -------------------------------------------------------------------------
+    // Recommendation Engine & Previous Performance Tracking
+    // -------------------------------------------------------------------------
+    getPersonalizedRecommendations(targetMuscleGroups = [], routineName = '') {
+        const library = Store.getExerciseLibrary();
+        const gym = Store.getGymState();
+        const sessions = (gym.sessions || []).filter(s => s.status === 'completed' || !s.status);
+        const normGroups = (targetMuscleGroups || []).map(g => (g || '').trim().toLowerCase());
+        const normRoutine = (routineName || '').trim().toLowerCase();
+        const now = Date.now();
+
+        const recs = [];
+
+        library.forEach(ex => {
+            const normExName = (ex.name || '').trim().toLowerCase();
+            const normExGroup = (ex.muscleGroup || '').trim().toLowerCase();
+
+            let frequency = 0;
+            let lastPerformedMs = 0;
+            let lastPerformedDate = null;
+            let inComparableWorkout = false;
+            let previousSets = [];
+            let previousBestSet = null;
+
+            sessions.forEach(sess => {
+                const sessDateMs = new Date(sess.date + 'T12:00:00').getTime();
+                const isComparable = normRoutine && (sess.routineName || sess.workoutType || '').trim().toLowerCase() === normRoutine;
+
+                const matchEx = (sess.exercises || []).find(e => {
+                    const eName = (e.name || e.exerciseNameSnapshot || '').trim().toLowerCase();
+                    return (eName === normExName || e.exerciseId === ex.id || e.id === ex.id) && !e.skipped;
+                });
+
+                if (matchEx) {
+                    frequency++;
+                    if (isComparable) {
+                        inComparableWorkout = true;
+                    }
+                    if (sessDateMs > lastPerformedMs) {
+                        lastPerformedMs = sessDateMs;
+                        lastPerformedDate = sess.date;
+                        previousSets = matchEx.sets || [];
+                        let bestWt = 0;
+                        let bestReps = 0;
+                        (matchEx.sets || []).forEach(s => {
+                            const wt = parseFloat(s.weightKg) || 0;
+                            const rp = parseInt(s.reps, 10) || 0;
+                            if (wt > bestWt || (wt === bestWt && rp > bestReps)) {
+                                bestWt = wt;
+                                bestReps = rp;
+                                previousBestSet = { weightKg: wt, reps: rp };
+                            }
+                        });
+                    }
+                }
+            });
+
+            const isSplitMatch = normGroups.includes(normExGroup);
+            const daysAgo = lastPerformedMs > 0 ? (now - lastPerformedMs) / (1000 * 60 * 60 * 24) : 999;
+            const recencyBonus = lastPerformedMs > 0 ? Math.max(0, 30 - daysAgo) : 0;
+
+            // Score: Split (+100), Comparable (+50), Frequency (+15), Recency (+0-30)
+            let score = 0;
+            if (isSplitMatch) score += 100;
+            if (inComparableWorkout) score += 50;
+            score += (frequency * 15);
+            score += recencyBonus;
+
+            recs.push({
+                exercise: ex,
+                score,
+                frequency,
+                lastPerformedDate,
+                lastPerformedMs,
+                inComparableWorkout,
+                isSplitMatch,
+                previousSets,
+                previousBestSet
+            });
+        });
+
+        const usual = recs
+            .filter(r => r.frequency >= 1)
+            .sort((a, b) => b.score - a.score || b.lastPerformedMs - a.lastPerformedMs);
+
+        const recommendedForSplit = recs
+            .filter(r => r.isSplitMatch)
+            .sort((a, b) => b.score - a.score);
+
+        return {
+            all: recs,
+            allRanked: recs,
+            usual,
+            recommendedForSplit
+        };
+    },
+
+    getExercisePerformanceDetails(exerciseName, exerciseId = null) {
+        const gym = Store.getGymState();
+        const normName = (exerciseName || '').trim().toLowerCase();
+        const sessions = (gym.sessions || []).filter(s => s.status === 'completed' || !s.status);
+
+        let lastSession = null;
+        let lastEx = null;
+
+        for (let i = sessions.length - 1; i >= 0; i--) {
+            const sess = sessions[i];
+            const matchEx = (sess.exercises || []).find(e => {
+                const eName = (e.name || e.exerciseNameSnapshot || '').trim().toLowerCase();
+                return (eName === normName || (exerciseId && (e.exerciseId === exerciseId || e.id === exerciseId))) && !e.skipped;
+            });
+            if (matchEx && matchEx.sets && matchEx.sets.length > 0) {
+                lastSession = sess;
+                lastEx = matchEx;
+                break;
+            }
+        }
+
+        const prs = Store.getExercisePRs();
+        const pr = (prs.exercises || []).find(p => (p.name || '').trim().toLowerCase() === normName);
+
+        if (!lastSession || !lastEx) {
+            return {
+                hasHistory: false,
+                lastPerformedFormatted: 'No previous performance recorded.',
+                previousSetsText: 'No previous performance recorded.',
+                previousBestSetFormatted: 'No previous set recorded.',
+                allTimePrFormatted: pr && pr.heaviest && pr.heaviest.weightKg > 0 
+                    ? `${pr.heaviest.weightKg} kg × ${pr.heaviest.reps} reps` 
+                    : 'No PR recorded.',
+                sets: []
+            };
+        }
+
+        let bestSet = null;
+        let bestWt = 0;
+        let bestReps = 0;
+
+        const setStrings = (lastEx.sets || []).map((s, idx) => {
+            const wt = parseFloat(s.weightKg) || 0;
+            const rp = parseInt(s.reps, 10) || 0;
+            if (wt > bestWt || (wt === bestWt && rp > bestReps)) {
+                bestWt = wt;
+                bestReps = rp;
+                bestSet = s;
+            }
+            return `Set ${s.setNumber || idx + 1} — ${wt > 0 ? wt + ' kg' : 'Bodyweight'} × ${rp} reps`;
+        });
+
+        const bestSetFormatted = bestSet 
+            ? `${parseFloat(bestSet.weightKg) || 0} kg × ${parseInt(bestSet.reps, 10) || 0} reps`
+            : 'No previous set recorded.';
+
+        let allTimePrFormatted = 'No PR recorded.';
+        if (pr && pr.heaviest && pr.heaviest.weightKg > 0) {
+            allTimePrFormatted = `${pr.heaviest.weightKg} kg × ${pr.heaviest.reps} reps`;
+        }
+
+        return {
+            hasHistory: true,
+            lastSessionDate: lastSession.date,
+            lastPerformedDate: lastSession.date,
+            lastPerformedFormatted: lastSession.date,
+            previousSetsText: setStrings.join(' • '),
+            setLines: setStrings,
+            previousBestSetFormatted: bestSetFormatted,
+            allTimePrFormatted,
+            sets: lastEx.sets || []
+        };
+    },
+
+    getPreviousComparableSession(targetMuscleGroups = null, routineName = null) {
+        const currentRoutine = (routineName || this.liveWorkout?.routineName || '').trim().toLowerCase();
+        const currentGroups = (targetMuscleGroups || this.liveWorkout?.targetMuscleGroups || []).map(g => (g || '').trim().toLowerCase());
+        const currentId = this.liveWorkout?.id || null;
+        const sessions = (Store.getGymState().sessions || []).filter(s => (s.status === 'completed' || !s.status) && (!currentId || s.id !== currentId));
+
+        if (sessions.length === 0) return null;
+
+        for (let i = sessions.length - 1; i >= 0; i--) {
+            const sess = sessions[i];
+            const sessRoutine = (sess.routineName || sess.workoutType || '').trim().toLowerCase();
+            const hasExercises = (sess.exercises || []).some(e => !e.skipped);
+            if (!hasExercises) continue;
+
+            if (currentRoutine && sessRoutine === currentRoutine) {
+                return sess;
+            }
+
+            const sessGroups = (sess.targetMuscleGroups || []).map(g => (g || '').trim().toLowerCase());
+            if (currentGroups.length > 0 && currentGroups.some(g => sessGroups.includes(g))) {
+                return sess;
+            }
+        }
+
+        for (let i = sessions.length - 1; i >= 0; i--) {
+            const sess = sessions[i];
+            if ((sess.exercises || []).some(e => !e.skipped)) {
+                return sess;
+            }
+        }
+
+        return null;
+    },
+
+    openViewPreviousExercisesModal() {
+        const prevSess = this.getPreviousComparableSession();
+        if (!prevSess) return;
+
+        let modal = document.getElementById('viewPreviousExercisesModal');
+        if (!modal) {
+            modal = document.createElement('div');
+            modal.className = 'modal-overlay';
+            modal.id = 'viewPreviousExercisesModal';
+            document.body.appendChild(modal);
+        }
+
+        const validExercises = (prevSess.exercises || []).filter(e => !e.skipped);
+
+        modal.innerHTML = `
+            <div class="modal-window" style="width: min(540px, 94vw);">
+                <div class="modal-header">
+                    <div>
+                        <span class="wizard-modal-eyebrow">PREVIOUS WORKOUT PREVIEW</span>
+                        <h3 class="wizard-modal-title">Exercises from ${prevSess.date}</h3>
+                    </div>
+                    <button type="button" class="btn-close-modal" onclick="document.getElementById('viewPreviousExercisesModal').classList.remove('active')">×</button>
+                </div>
+                <div class="modal-body" style="padding: 16px 20px; max-height: 60vh; overflow-y: auto; display: flex; flex-direction: column; gap: 8px;">
+                    <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">
+                        Routine: <b style="color: #fff;">${prevSess.routineName || prevSess.workoutType}</b> · Total Volume: <b style="color: var(--gold);">${Math.round(prevSess.totalVolumeKg || 0)} kg</b>
+                    </div>
+                    ${validExercises.map((ex, idx) => {
+                        const setSummary = (ex.sets || []).map(s => `${s.weightKg || 0}kg × ${s.reps || 0}`).join(', ');
+                        return `
+                            <div class="picker-ex-item" style="padding: 10px 14px;">
+                                <div>
+                                    <h5 style="margin: 0; color: #fff; font-size: 13.5px; font-weight: 700;">${idx + 1}. ${ex.name}</h5>
+                                    <span style="font-size: 11px; color: var(--text-muted);">${ex.muscleGroup || 'General'} · ${setSummary || 'Completed'}</span>
+                                </div>
+                            </div>
+                        `;
+                    }).join('')}
+                </div>
+                <div class="modal-footer" style="padding: 14px 20px; display: flex; justify-content: space-between; align-items: center;">
+                    <button class="action-btn-ghost" onclick="document.getElementById('viewPreviousExercisesModal').classList.remove('active')">Close</button>
+                    <button class="btn-primary" onclick="document.getElementById('viewPreviousExercisesModal').classList.remove('active'); GymEngine.usePreviousWorkoutExercises();">
+                        USE THESE EXERCISES ✓
+                    </button>
+                </div>
+            </div>
+        `;
+
+        modal.onclick = (e) => {
+            if (e.target === modal) modal.classList.remove('active');
+        };
+
+        modal.classList.add('active');
+    },
+
+    usePreviousWorkoutExercises() {
+        const prevSess = this.getPreviousComparableSession();
+        if (!prevSess || !this.liveWorkout) return;
+
+        const library = Store.getExerciseLibrary();
+        const validExercises = (prevSess.exercises || []).filter(e => !e.skipped);
+        if (validExercises.length === 0) {
+            showToast('No exercises found in previous workout.', 'warning');
+            return;
+        }
+
+        if (this.liveWorkout.stage === 'select_exercises') {
+            if (!this.liveWorkout.selectedExerciseIds) {
+                this.liveWorkout.selectedExerciseIds = [];
+            }
+            validExercises.forEach(we => {
+                const weName = (we.name || we.exerciseNameSnapshot || '').trim().toLowerCase();
+                const matched = library.find(libEx => libEx.id === we.exerciseId || (libEx.name || '').trim().toLowerCase() === weName);
+                const idToAdd = matched ? matched.id : (we.exerciseId || we.id);
+                if (idToAdd && !this.liveWorkout.selectedExerciseIds.includes(idToAdd)) {
+                    this.liveWorkout.selectedExerciseIds.push(idToAdd);
+                }
+            });
+            Store.saveActiveWorkoutSession(this.liveWorkout);
+            showToast(`Loaded ${validExercises.length} exercises from previous workout on ${prevSess.date}.`, 'success');
+            this.render();
+        } else {
+            let addedCount = 0;
+            validExercises.forEach(we => {
+                const weName = (we.name || we.exerciseNameSnapshot || '').trim().toLowerCase();
+                const matched = library.find(libEx => libEx.id === we.exerciseId || (libEx.name || '').trim().toLowerCase() === weName) || {
+                    id: we.exerciseId || ('ex_' + Date.now()),
+                    name: we.name || we.exerciseNameSnapshot || 'Exercise',
+                    muscleGroup: we.muscleGroup || 'General',
+                    equipment: we.equipment || 'Standard'
+                };
+                const alreadyExists = this.liveWorkout.exercises.some(e => 
+                    (e.exerciseId && e.exerciseId === matched.id) ||
+                    (e.name || '').trim().toLowerCase() === matched.name.toLowerCase()
+                );
+                if (!alreadyExists) {
+                    const perf = this.getExercisePerformanceDetails(matched.name, matched.id);
+                    this.liveWorkout.exercises.push({
+                        id: 'ex_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+                        exerciseId: matched.id,
+                        name: matched.name,
+                        muscleGroup: matched.muscleGroup || 'General',
+                        category: matched.category || matched.muscleGroup || 'General',
+                        equipment: matched.equipment || 'Standard',
+                        notes: matched.notes || '',
+                        previousSets: perf.sets || [],
+                        sets: [
+                            { setNumber: 1, weightKg: '', reps: '', rpe: '', completed: false },
+                            { setNumber: 2, weightKg: '', reps: '', rpe: '', completed: false },
+                            { setNumber: 3, weightKg: '', reps: '', rpe: '', completed: false }
+                        ],
+                        skipped: false,
+                        completed: false
+                    });
+                    addedCount++;
+                }
+            });
+            Store.saveActiveWorkoutSession(this.liveWorkout);
+            showToast(`Added ${addedCount} exercises from previous session.`, 'success');
+            this.render();
+        }
+    },
+
+    addAllUsualExercises() {
+        if (!this.liveWorkout) return;
+        const targetGroups = this.liveWorkout.targetMuscleGroups || [];
+        const recs = this.getPersonalizedRecommendations(targetGroups, this.liveWorkout.routineName);
+        const usual = recs.usual || [];
+        if (usual.length === 0) {
+            showToast('No usual exercises found to add.', 'info');
+            return;
+        }
+
+        if (!this.liveWorkout.selectedExerciseIds) {
+            this.liveWorkout.selectedExerciseIds = [];
+        }
+
+        usual.forEach(r => {
+            if (!this.liveWorkout.selectedExerciseIds.includes(r.exercise.id)) {
+                this.liveWorkout.selectedExerciseIds.push(r.exercise.id);
+            }
+        });
+
+        Store.saveActiveWorkoutSession(this.liveWorkout);
+        showToast(`Added ${usual.length} usual exercises to checklist.`, 'success');
+        this.render();
+    },
+
+    // -------------------------------------------------------------------------
     // Stage 1: Exercise Selection UI
     // -------------------------------------------------------------------------
     renderExerciseSelectionHtml() {
@@ -725,100 +1144,210 @@ const GymEngine = {
         // Selected exercise objects
         const selectedExercises = library.filter(e => selectedIds.includes(e.id));
 
+        // 1. Personalized Recommendations & Usual Exercises
+        const recs = this.getPersonalizedRecommendations(targetGroups, sess.routineName);
+        const usual = recs.usual || [];
+
+        // 2. Previous Comparable Workout
+        const prevComparableSession = this.getPreviousComparableSession();
+
         return `
             <div class="ex-selection-container">
-                <div class="ex-selection-header">
+                <div class="ex-selection-header" style="margin-bottom: 20px;">
                     <div>
-                        <span class="twh-badge">TODAY'S WORKOUT</span>
-                        <h2 style="margin: 4px 0 2px 0; color: #fff; font-size: 24px; font-weight: 800;">${sess.routineName}</h2>
+                        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+                            <span class="twh-badge" style="background: rgba(245, 197, 24, 0.15); border: 1px solid rgba(245, 197, 24, 0.4); color: var(--gold); font-size: 10px; font-weight: 800; padding: 2px 8px; border-radius: 4px;">
+                                TODAY'S WORKOUT
+                            </span>
+                            <span style="font-size: 11px; color: #10b981; font-weight: 700; display: flex; align-items: center; gap: 4px;">
+                                <span>📸</span> CHECK-IN VERIFIED
+                            </span>
+                        </div>
+                        <h2 style="margin: 2px 0; color: #fff; font-size: 24px; font-weight: 800; letter-spacing: -0.3px;">${sess.routineName}</h2>
                         <p style="color: var(--text-secondary); margin: 4px 0 0 0; font-size: 13px;">
-                            Select the exercises you performed today. You can select, deselect, or create custom exercises.
+                            ${targetGroups.join(' + ').toUpperCase()} · Select your exercises or continue from a previous workout.
                         </p>
                     </div>
-                    <div style="display: flex; gap: 8px; align-items: center;">
+                    <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
                         <button class="action-btn-ghost" style="padding: 8px 14px; font-size: 12.5px;" onclick="GymEngine.openCreateExerciseModal()">
-                            ＋ Create New Exercise
+                            ＋ Create Custom Exercise
                         </button>
                     </div>
                 </div>
 
-                <!-- Exercise Search Bar -->
-                <div style="margin-bottom: 20px;">
-                    <input
-                        type="text"
-                        class="form-input"
-                        placeholder="Search exercises by name, muscle group, or equipment..."
-                        value="${this.exerciseSearchQuery}"
-                        oninput="GymEngine.onExerciseSearch(this.value)"
-                        style="width: 100%; max-width: 480px;"
-                    >
-                </div>
-
-                <!-- Muscle Group Blocks -->
-                ${targetGroups.map(mg => {
-                    const groupExs = Store.getExerciseLibrary({
-                        muscleGroup: mg,
-                        search: this.exerciseSearchQuery
-                    });
-
-                    return `
-                        <div class="ex-category-block">
-                            <div class="ex-category-title">
-                                <span>💪</span>
-                                <span>${mg.toUpperCase()} EXERCISES</span>
-                                <span style="font-size: 11px; color: var(--text-muted); font-weight: 500;">(${groupExs.length} available)</span>
-                            </div>
-                            <div class="ex-chips-grid">
-                                ${groupExs.map(ex => {
-                                    const isSel = selectedIds.includes(ex.id);
-                                    return `
-                                        <button
-                                            type="button"
-                                            class="ex-picker-chip ${isSel ? 'selected' : ''}"
-                                            onclick="GymEngine.toggleExerciseSelection('${ex.id}')"
-                                        >
-                                            <span class="chip-icon">${isSel ? '✓' : '＋'}</span>
-                                            <span>${ex.name}</span>
-                                        </button>
-                                    `;
-                                }).join('')}
-                            </div>
+                <!-- 1. CONTINUE PREVIOUS WORKOUT (if comparable workout exists) -->
+                ${prevComparableSession ? `
+                    <div class="continue-prev-card">
+                        <div class="continue-prev-info">
+                            <span class="continue-prev-eyebrow">
+                                <span>🔁</span> CONTINUE PREVIOUS WORKOUT
+                            </span>
+                            <h4 class="continue-prev-title">LAST COMPARABLE SESSION: ${prevComparableSession.date}</h4>
+                            <span class="continue-prev-meta">
+                                ${(prevComparableSession.exercises || []).filter(e => !e.skipped).length} exercises logged · ${Math.round(prevComparableSession.totalVolumeKg || 0)} kg total volume
+                            </span>
                         </div>
-                    `;
-                }).join('')}
-
-                <!-- Additional exercises if search query matches outside primary groups -->
-                ${this.exerciseSearchQuery ? `
-                    <div class="ex-category-block">
-                        <div class="ex-category-title">
-                            <span>🔍</span>
-                            <span>OTHER MATCHING EXERCISES</span>
-                        </div>
-                        <div class="ex-chips-grid">
-                            ${Store.getExerciseLibrary({ search: this.exerciseSearchQuery })
-                                .filter(e => !targetGroups.some(tg => tg.toLowerCase() === (e.muscleGroup || '').toLowerCase()))
-                                .map(ex => {
-                                    const isSel = selectedIds.includes(ex.id);
-                                    return `
-                                        <button
-                                            type="button"
-                                            class="ex-picker-chip ${isSel ? 'selected' : ''}"
-                                            onclick="GymEngine.toggleExerciseSelection('${ex.id}')"
-                                        >
-                                            <span class="chip-icon">${isSel ? '✓' : '＋'}</span>
-                                            <span>${ex.name} (${ex.muscleGroup})</span>
-                                        </button>
-                                    `;
-                                }).join('')}
+                        <div class="continue-prev-actions">
+                            <button type="button" class="action-btn-ghost" style="padding: 9px 16px; font-size: 12.5px;" onclick="GymEngine.openViewPreviousExercisesModal()">
+                                VIEW EXERCISES
+                            </button>
+                            <button type="button" class="btn-primary" style="padding: 9px 20px; font-weight: 800; font-size: 13px;" onclick="GymEngine.usePreviousWorkoutExercises()">
+                                USE THESE EXERCISES
+                            </button>
                         </div>
                     </div>
                 ` : ''}
 
-                <!-- TODAY'S EXERCISES Shelf -->
+                <!-- 2. YOUR USUAL EXERCISES Section -->
+                <div style="margin-bottom: 24px;">
+                    <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 10px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); padding-bottom: 6px;">
+                        <div>
+                            <span style="font-size: 11px; color: var(--gold); font-weight: 800; letter-spacing: 0.8px; text-transform: uppercase;">PERSONALIZED FOR YOU</span>
+                            <h3 style="margin: 2px 0 0 0; color: #fff; font-size: 18px; font-weight: 800;">YOUR USUAL EXERCISES</h3>
+                            <span style="font-size: 11.5px; color: var(--text-muted);">Based on your real workout history & today's split</span>
+                        </div>
+                        ${usual.length > 0 ? `
+                            <button class="action-btn-ghost" style="font-size: 11.5px; padding: 4px 10px;" onclick="GymEngine.addAllUsualExercises()">
+                                ＋ ADD ALL USUAL
+                            </button>
+                        ` : ''}
+                    </div>
+
+                    ${usual.length === 0 ? `
+                        <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 14px 18px; display: flex; align-items: center; gap: 12px;">
+                            <span style="font-size: 24px; color: var(--text-muted);">📋</span>
+                            <div>
+                                <h5 style="margin: 0; color: #fff; font-size: 13.5px; font-weight: 700;">No previous performance recorded.</h5>
+                                <p style="margin: 2px 0 0 0; color: var(--text-muted); font-size: 11.5px;">Usual exercises will dynamically rank as you log authentic workouts. Choose exercises below to begin.</p>
+                            </div>
+                        </div>
+                    ` : `
+                        <div class="usual-exercises-grid">
+                            ${usual.slice(0, 6).map(r => {
+                                const ex = r.exercise;
+                                const isSel = selectedIds.includes(ex.id);
+                                const bestSetStr = r.previousBestSet ? `${r.previousBestSet.weightKg} kg × ${r.previousBestSet.reps} reps` : 'Recorded';
+                                return `
+                                    <div class="usual-ex-card ${isSel ? 'selected' : ''}">
+                                        <div class="usual-ex-top">
+                                            <div>
+                                                <div class="usual-ex-name">${ex.name}</div>
+                                                <span class="usual-ex-pill">${ex.muscleGroup} • ${ex.equipment || 'Standard'}</span>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                class="picker-add-action-btn ${isSel ? 'added' : ''}"
+                                                onclick="GymEngine.toggleExerciseSelection('${ex.id}')"
+                                            >
+                                                ${isSel ? 'ADDED ✓' : '＋ ADD'}
+                                            </button>
+                                        </div>
+                                        <div class="usual-ex-history">
+                                            <div>Last performed: <span class="highlight-stat">${r.lastPerformedDate || 'Recent'}</span></div>
+                                            <div>Previous best set: <span class="highlight-stat">${bestSetStr}</span></div>
+                                        </div>
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+                    `}
+                </div>
+
+                <!-- 3. TODAY'S WORKOUT SPLIT -->
+                <div style="margin-bottom: 24px;">
+                    <div style="margin-bottom: 10px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); padding-bottom: 6px;">
+                        <span style="font-size: 11px; color: var(--gold); font-weight: 800; letter-spacing: 0.8px; text-transform: uppercase;">TODAY'S SPLIT</span>
+                        <h3 style="margin: 2px 0 0 0; color: #fff; font-size: 18px; font-weight: 800;">RECOMMENDED FOR TODAY</h3>
+                        <span style="font-size: 11.5px; color: var(--text-muted);">${targetGroups.join(' + ')} exercises</span>
+                    </div>
+
+                    ${targetGroups.map(mg => {
+                        const groupExs = Store.getExerciseLibrary({
+                            muscleGroup: mg,
+                            search: this.exerciseSearchQuery
+                        });
+
+                        return `
+                            <div class="ex-category-block" style="margin-bottom: 14px;">
+                                <div class="ex-category-title">
+                                    <span>💪</span>
+                                    <span>${mg.toUpperCase()} EXERCISES</span>
+                                    <span style="font-size: 11px; color: var(--text-muted); font-weight: 500;">(${groupExs.length} available)</span>
+                                </div>
+                                <div class="ex-chips-grid">
+                                    ${groupExs.map(ex => {
+                                        const isSel = selectedIds.includes(ex.id);
+                                        return `
+                                            <button
+                                                type="button"
+                                                class="ex-picker-chip ${isSel ? 'selected' : ''}"
+                                                onclick="GymEngine.toggleExerciseSelection('${ex.id}')"
+                                            >
+                                                <span class="chip-icon">${isSel ? '✓' : '＋'}</span>
+                                                <span>${ex.name}</span>
+                                            </button>
+                                        `;
+                                    }).join('')}
+                                </div>
+                            </div>
+                        `;
+                    }).join('')}
+                </div>
+
+                <!-- 4. ALL EXERCISES / SEARCH BAR & CATALOGUE ENTRY -->
+                <div style="margin-bottom: 24px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); padding-bottom: 6px;">
+                        <div>
+                            <span style="font-size: 11px; color: var(--gold); font-weight: 800; letter-spacing: 0.8px; text-transform: uppercase;">COMPLETE LIBRARY</span>
+                            <h3 style="margin: 2px 0 0 0; color: #fff; font-size: 18px; font-weight: 800;">ALL EXERCISES</h3>
+                        </div>
+                        <button class="btn-primary" style="padding: 7px 14px; font-size: 12px; font-weight: 700;" onclick="GymEngine.openExercisePickerModal({ mode: 'selection' })">
+                            ＋ BROWSE COMPLETE CATALOGUE
+                        </button>
+                    </div>
+
+                    <div style="margin-bottom: 16px;">
+                        <input
+                            type="text"
+                            class="form-input"
+                            placeholder="Quick search exercises by name, muscle group, or equipment..."
+                            value="${this.exerciseSearchQuery}"
+                            oninput="GymEngine.onExerciseSearch(this.value)"
+                            style="width: 100%; max-width: 520px;"
+                        >
+                    </div>
+
+                    ${this.exerciseSearchQuery ? `
+                        <div class="ex-category-block">
+                            <div class="ex-category-title">
+                                <span>🔍</span>
+                                <span>MATCHING EXERCISES</span>
+                            </div>
+                            <div class="ex-chips-grid">
+                                ${Store.getExerciseLibrary({ search: this.exerciseSearchQuery })
+                                    .map(ex => {
+                                        const isSel = selectedIds.includes(ex.id);
+                                        return `
+                                            <button
+                                                type="button"
+                                                class="ex-picker-chip ${isSel ? 'selected' : ''}"
+                                                onclick="GymEngine.toggleExerciseSelection('${ex.id}')"
+                                            >
+                                                <span class="chip-icon">${isSel ? '✓' : '＋'}</span>
+                                                <span>${ex.name} (${ex.muscleGroup})</span>
+                                            </button>
+                                        `;
+                                    }).join('')}
+                            </div>
+                        </div>
+                    ` : ''}
+                </div>
+
+                <!-- 5. TODAY'S EXERCISES Shelf -->
                 <div class="today-ex-shelf">
                     <div class="today-shelf-header">
                         <div>
-                            <span style="font-size: 11px; color: var(--gold); text-transform: uppercase; font-weight: 800; letter-spacing: 0.5px;">CHECKLIST</span>
+                            <span style="font-size: 11px; color: var(--gold); text-transform: uppercase; font-weight: 800; letter-spacing: 0.5px;">STAGED FOR TODAY</span>
                             <h4 style="margin: 2px 0 0 0; color: #fff; font-size: 16px;">
                                 TODAY'S EXERCISES (${selectedExercises.length} selected)
                             </h4>
@@ -826,7 +1355,7 @@ const GymEngine = {
                         <button
                             type="button"
                             class="btn-primary"
-                            style="padding: 10px 22px; font-weight: 800; font-size: 13.5px;"
+                            style="padding: 10px 24px; font-weight: 800; font-size: 13.5px;"
                             ${selectedExercises.length === 0 ? 'disabled style="opacity: 0.5; cursor: not-allowed;"' : ''}
                             onclick="GymEngine.startLoggingSelectedExercises()"
                         >
@@ -841,7 +1370,7 @@ const GymEngine = {
                                 <button type="button" class="btn-remove-chip" aria-label="Remove ${ex.name}" onclick="GymEngine.toggleExerciseSelection('${ex.id}')">×</button>
                             </div>
                         `).join('') : `
-                            <span style="color: var(--text-muted); font-size: 12.5px;">Click any exercise chip above to add it to today's workout.</span>
+                            <span style="color: var(--text-muted); font-size: 12.5px;">Click any exercise card or chip above to stage it for today's workout.</span>
                         `}
                     </div>
                 </div>
@@ -887,16 +1416,18 @@ const GymEngine = {
 
         const library = Store.getExerciseLibrary();
         const liveExercises = selectedIds.map(id => {
-            const def = library.find(e => e.id === id) || { name: 'Exercise', muscleGroup: 'General' };
-            const history = Store.getExerciseHistory(def.name);
-            const lastSession = history.length > 0 ? history[history.length - 1] : null;
+            const def = library.find(e => e.id === id || (e.name || '').toLowerCase() === String(id).toLowerCase()) || { name: 'Exercise', muscleGroup: 'General' };
+            const perf = this.getExercisePerformanceDetails(def.name, def.id);
 
             return {
                 id: def.id || 'ex_' + Date.now(),
+                exerciseId: def.id,
                 name: def.name,
                 muscleGroup: def.muscleGroup || 'General',
+                category: def.category || def.muscleGroup || 'General',
+                equipment: def.equipment || 'Standard',
                 notes: def.notes || '',
-                previousSets: lastSession?.sets || [],
+                previousSets: perf.sets || [],
                 sets: [
                     { setNumber: 1, weightKg: '', reps: '', rpe: '', completed: false },
                     { setNumber: 2, weightKg: '', reps: '', rpe: '', completed: false },
@@ -1004,10 +1535,11 @@ const GymEngine = {
                             `;
                         }
 
-                        const prevSets = ex.previousSets || [];
-                        const prevRefText = prevSets.length > 0
-                            ? prevSets.map((ps, i) => `Set ${i+1}: <b>${ps.weightKg} kg × ${ps.reps}</b>`).join(' &nbsp;•&nbsp; ')
-                            : 'No previous record';
+                        const perf = this.getExercisePerformanceDetails(ex.name, ex.exerciseId);
+                        const prevSets = ex.previousSets && ex.previousSets.length > 0 ? ex.previousSets : perf.sets;
+                        const prevRefText = perf.hasHistory
+                            ? perf.previousSetsText
+                            : 'No previous performance recorded.';
 
                         return `
                             <div class="live-ex-card ${ex.completed ? 'completed' : ''}">
@@ -1025,12 +1557,28 @@ const GymEngine = {
 
                                 <!-- Previous Performance as Reference -->
                                 <div class="live-ex-prev-box">
-                                    <span class="prev-title">⏮ LAST TIME:</span>
-                                    <div class="prev-content">${prevRefText}</div>
+                                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+                                        <span class="prev-title">⏮ Previous session ${perf.hasHistory ? `(${perf.lastSessionDate})` : ''}:</span>
+                                        ${perf.allTimePrFormatted !== 'No PR recorded.' ? `
+                                            <span class="pr-badge-pill" style="font-size: 11px; background: rgba(96, 165, 250, 0.15); border: 1px solid rgba(96, 165, 250, 0.35); color: #93c5fd; padding: 2px 8px; border-radius: 4px; font-weight: 700;">
+                                                🏆 ALL-TIME PR: ${perf.allTimePrFormatted}
+                                            </span>
+                                        ` : ''}
+                                    </div>
+                                    <div class="prev-content" style="margin-top: 6px;">
+                                        ${perf.hasHistory && perf.setLines && perf.setLines.length > 0 ? `
+                                            <div style="display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: #cbd5e1;">
+                                                ${perf.setLines.map(line => `<span>${line}</span>`).join('')}
+                                            </div>
+                                        ` : `<span style="font-size: 12px; color: var(--text-muted);">${prevRefText}</span>`}
+                                    </div>
                                 </div>
 
                                 <!-- Sets Table -->
                                 <div class="live-sets-table">
+                                    <div style="padding: 6px 12px; font-size: 10px; font-weight: 800; letter-spacing: 0.8px; color: var(--gold); text-transform: uppercase; background: rgba(245, 197, 24, 0.05); border-bottom: 1px solid rgba(255, 255, 255, 0.05);">
+                                        TODAY'S PERFORMANCE (SETS)
+                                    </div>
                                     <div class="set-row header">
                                         <span class="col-num">Set</span>
                                         <span class="col-prev">Previous</span>
@@ -1212,23 +1760,122 @@ const GymEngine = {
     },
 
     openAddExerciseDuringWorkoutModal() {
+        this.openExercisePickerModal({ mode: 'workout' });
+    },
+
+    openExercisePickerModal(options = {}) {
+        this.exercisePickerState = {
+            isOpen: true,
+            mode: options.mode || 'workout',
+            query: '',
+            filter: 'all'
+        };
+
+        let modal = document.getElementById('exercisePickerModal');
+        if (!modal) {
+            modal = document.createElement('div');
+            modal.className = 'modal-overlay';
+            modal.id = 'exercisePickerModal';
+            document.body.appendChild(modal);
+        }
+
+        modal.onclick = (e) => {
+            if (e.target === modal) {
+                GymEngine.closeExercisePickerModal();
+            }
+        };
+
+        if (typeof document !== 'undefined' && document.body) {
+            document.body.style.overflow = 'hidden';
+        }
+        this.renderExercisePickerModalUI();
+        modal.classList.add('active');
+
+        setTimeout(() => {
+            const inp = document.getElementById('exercisePickerSearchInput');
+            if (inp && typeof inp.focus === 'function') inp.focus();
+        }, 80);
+    },
+
+    closeExercisePickerModal() {
+        const modal = document.getElementById('exercisePickerModal');
+        if (modal) {
+            modal.classList.remove('active');
+        }
+        if (typeof document !== 'undefined' && document.body) {
+            document.body.style.overflow = '';
+        }
+        if (this.exercisePickerState) {
+            this.exercisePickerState.isOpen = false;
+        }
+    },
+
+    onPickerSearchInput(val) {
+        if (!this.exercisePickerState) return;
+        this.exercisePickerState.query = val;
+        this.renderExercisePickerModalUI();
+    },
+
+    setPickerFilter(filterKey) {
+        if (!this.exercisePickerState) return;
+        this.exercisePickerState.filter = filterKey;
+        this.renderExercisePickerModalUI();
+    },
+
+    selectPickerExercise(exId) {
         const library = Store.getExerciseLibrary();
-        const search = prompt('Enter exercise name to add to current workout:');
-        if (!search || !search.trim()) return;
+        const ex = library.find(e => e.id === exId);
+        if (!ex) return;
 
-        const match = library.find(e => e.name.toLowerCase() === search.trim().toLowerCase());
-        const exName = match ? match.name : search.trim();
-        const muscleGroup = match ? match.muscleGroup : 'General';
+        if (this.exercisePickerState?.mode === 'selection') {
+            this.toggleExerciseSelection(ex.id);
+            this.renderExercisePickerModalUI();
+        } else {
+            this.addExerciseToActiveWorkout(ex);
+        }
+    },
 
-        const history = Store.getExerciseHistory(exName);
-        const lastSession = history.length > 0 ? history[history.length - 1] : null;
+    addExerciseToActiveWorkout(exerciseOrId) {
+        if (!this.liveWorkout) return;
+        if (!this.liveWorkout.exercises) this.liveWorkout.exercises = [];
 
-        this.liveWorkout.exercises.push({
-            id: 'ex_' + Date.now(),
-            name: exName,
-            muscleGroup,
-            notes: '',
-            previousSets: lastSession?.sets || [],
+        const library = Store.getExerciseLibrary();
+        let targetEx = null;
+        if (typeof exerciseOrId === 'object' && exerciseOrId !== null) {
+            targetEx = exerciseOrId;
+        } else {
+            targetEx = library.find(e => e.id === exerciseOrId || (e.name || '').trim().toLowerCase() === String(exerciseOrId).trim().toLowerCase());
+        }
+
+        if (!targetEx) {
+            showToast('Exercise not found in library.', 'error');
+            return;
+        }
+
+        const normName = (targetEx.name || '').trim().toLowerCase();
+
+        // Prevent accidental duplicates in active session
+        const alreadyExists = this.liveWorkout.exercises.some(e => 
+            (e.exerciseId && e.exerciseId === targetEx.id) || 
+            (e.name || '').trim().toLowerCase() === normName
+        );
+
+        if (alreadyExists) {
+            showToast(`${targetEx.name} is already in today's workout.`, 'warning');
+            return;
+        }
+
+        const perf = this.getExercisePerformanceDetails(targetEx.name, targetEx.id);
+
+        const newWorkoutExercise = {
+            id: 'ex_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+            exerciseId: targetEx.id,
+            name: targetEx.name,
+            muscleGroup: targetEx.muscleGroup || 'General',
+            category: targetEx.category || targetEx.muscleGroup || 'General',
+            equipment: targetEx.equipment || 'Standard',
+            notes: targetEx.notes || '',
+            previousSets: perf.sets || [],
             sets: [
                 { setNumber: 1, weightKg: '', reps: '', rpe: '', completed: false },
                 { setNumber: 2, weightKg: '', reps: '', rpe: '', completed: false },
@@ -1236,11 +1883,235 @@ const GymEngine = {
             ],
             skipped: false,
             completed: false
-        });
+        };
 
+        this.liveWorkout.exercises.push(newWorkoutExercise);
         Store.saveActiveWorkoutSession(this.liveWorkout);
-        showToast(`Added ${exName} to today's workout.`, 'success');
+
+        showToast('Exercise added to workout.', 'success');
+        this.closeExercisePickerModal();
         this.render();
+    },
+
+    renderExercisePickerModalUI() {
+        const modal = document.getElementById('exercisePickerModal');
+        if (!modal) return;
+
+        const state = this.exercisePickerState || { query: '', filter: 'all', mode: 'workout' };
+        const query = (state.query || '').trim().toLowerCase();
+        const activeFilter = state.filter || 'all';
+        const mode = state.mode || 'workout';
+
+        const library = Store.getExerciseLibrary();
+        const sess = this.liveWorkout;
+        const targetGroups = sess ? (sess.targetMuscleGroups || []) : [];
+        const routineName = sess ? (sess.routineName || '') : '';
+
+        const existingInWorkoutNames = new Set();
+        const existingInWorkoutIds = new Set();
+        if (sess) {
+            if (mode === 'workout') {
+                (sess.exercises || []).forEach(e => {
+                    if (e.name) existingInWorkoutNames.add(e.name.trim().toLowerCase());
+                    if (e.exerciseId) existingInWorkoutIds.add(e.exerciseId);
+                    if (e.id) existingInWorkoutIds.add(e.id);
+                });
+            } else {
+                (sess.selectedExerciseIds || []).forEach(id => existingInWorkoutIds.add(id));
+            }
+        }
+
+        const recs = this.getPersonalizedRecommendations(targetGroups, routineName);
+        const usual = recs.usual || [];
+        const recommendedForSplit = recs.recommendedForSplit || [];
+
+        const filterChips = [
+            { id: 'all', label: 'ALL EXERCISES' },
+            { id: 'usual', label: `YOUR USUAL (${usual.length})` },
+            { id: 'recommended', label: `RECOMMENDED (${recommendedForSplit.length})` },
+            { id: 'back', label: 'Back' },
+            { id: 'biceps', label: 'Biceps' },
+            { id: 'chest', label: 'Chest' },
+            { id: 'triceps', label: 'Triceps' },
+            { id: 'legs', label: 'Legs' },
+            { id: 'shoulders', label: 'Shoulders' },
+            { id: 'core', label: 'Core' }
+        ];
+
+        let displayList = [];
+        let isGroupedView = false;
+
+        if (query) {
+            displayList = library.filter(e => {
+                const name = (e.name || '').toLowerCase();
+                const mg = (e.muscleGroup || '').toLowerCase();
+                const cat = (e.category || '').toLowerCase();
+                const eq = (e.equipment || '').toLowerCase();
+                return name.includes(query) || mg.includes(query) || cat.includes(query) || eq.includes(query);
+            });
+        } else if (activeFilter === 'usual') {
+            displayList = usual.map(u => u.exercise);
+        } else if (activeFilter === 'recommended') {
+            displayList = recommendedForSplit.map(r => r.exercise);
+        } else if (activeFilter !== 'all') {
+            displayList = library.filter(e => (e.muscleGroup || '').toLowerCase() === activeFilter.toLowerCase());
+        } else {
+            isGroupedView = true;
+        }
+
+        const renderPickerItem = (ex) => {
+            const normName = (ex.name || '').trim().toLowerCase();
+            const isAlreadyAdded = mode === 'workout'
+                ? (existingInWorkoutIds.has(ex.id) || existingInWorkoutNames.has(normName))
+                : existingInWorkoutIds.has(ex.id);
+
+            const perf = this.getExercisePerformanceDetails(ex.name, ex.id);
+
+            return `
+                <div class="picker-ex-item ${isAlreadyAdded ? 'already-added' : ''}">
+                    <div class="picker-ex-details">
+                        <div class="picker-ex-header-row">
+                            <span class="picker-ex-name-text">${ex.name}</span>
+                            <span class="picker-ex-badge">${ex.muscleGroup || 'General'}</span>
+                            <span class="picker-ex-badge">${ex.equipment || 'Standard'}</span>
+                            ${isAlreadyAdded ? `
+                                <span style="font-size: 10px; background: rgba(16, 185, 129, 0.15); color: #34d399; padding: 2px 6px; border-radius: 4px; font-weight: 700;">
+                                    ✓ IN WORKOUT
+                                </span>
+                            ` : ''}
+                        </div>
+                        <div class="picker-ex-perf-row">
+                            ${perf.hasHistory ? `
+                                <span>Last performed: <b style="color: var(--gold);">${perf.lastPerformedFormatted}</b></span>
+                                <span>•</span>
+                                <span>Best set: <b style="color: var(--gold);">${perf.previousBestSetFormatted}</b></span>
+                                ${perf.allTimePrFormatted !== 'No PR recorded.' ? `
+                                    <span>•</span>
+                                    <span style="color: #93c5fd; font-weight: 700;">PR: ${perf.allTimePrFormatted}</span>
+                                ` : ''}
+                            ` : `
+                                <span>No previous performance recorded.</span>
+                            `}
+                        </div>
+                    </div>
+                    <button
+                        type="button"
+                        class="picker-add-action-btn ${isAlreadyAdded ? 'added' : ''}"
+                        ${isAlreadyAdded ? 'disabled' : ''}
+                        onclick="GymEngine.selectPickerExercise('${ex.id}')"
+                    >
+                        ${isAlreadyAdded ? '✓ IN WORKOUT' : '＋ ADD EXERCISE'}
+                    </button>
+                </div>
+            `;
+        };
+
+        modal.innerHTML = `
+            <div class="exercise-picker-window modal-window">
+                <!-- Modal Header -->
+                <div class="modal-header" style="padding: 16px 20px; border-bottom: 1px solid rgba(255, 255, 255, 0.08);">
+                    <div>
+                        <h3 class="wizard-modal-title" style="margin: 0; color: #fff; font-size: 19px; font-weight: 800; letter-spacing: 0.5px;">
+                            ADD EXERCISE
+                        </h3>
+                        <p style="margin: 3px 0 0 0; font-size: 12.5px; color: var(--text-muted);">
+                            Choose an exercise for your current workout.
+                        </p>
+                    </div>
+                    <button type="button" class="btn-close-modal" aria-label="Close" onclick="GymEngine.closeExercisePickerModal()">×</button>
+                </div>
+
+                <!-- Search Bar & Filters -->
+                <div class="picker-search-bar">
+                    <input
+                        type="text"
+                        id="exercisePickerSearchInput"
+                        class="form-input"
+                        placeholder="Search exercises..."
+                        value="${state.query || ''}"
+                        oninput="GymEngine.onPickerSearchInput(this.value)"
+                        style="width: 100%; font-size: 13.5px; padding: 10px 14px;"
+                    >
+                    <div class="picker-filter-chips">
+                        ${filterChips.map(c => `
+                            <button
+                                type="button"
+                                class="picker-filter-chip ${activeFilter === c.id ? 'active' : ''}"
+                                onclick="GymEngine.setPickerFilter('${c.id}')"
+                            >
+                                ${c.label}
+                            </button>
+                        `).join('')}
+                    </div>
+                </div>
+
+                <!-- Picker Body (Scrollable) -->
+                <div class="picker-body-scroll">
+                    ${isGroupedView ? `
+                        <!-- A. YOUR USUAL EXERCISES -->
+                        <div class="picker-section">
+                            <div class="picker-section-header">
+                                <span>⭐ YOUR USUAL EXERCISES</span>
+                                <span>${usual.length} available</span>
+                            </div>
+                            ${usual.length === 0 ? `
+                                <div style="font-size: 12px; color: var(--text-muted); padding: 8px 12px; background: rgba(255, 255, 255, 0.02); border-radius: 6px;">
+                                    No previous performance recorded. Usual exercises will rank as you log workouts.
+                                </div>
+                            ` : usual.map(u => renderPickerItem(u.exercise)).join('')}
+                        </div>
+
+                        <!-- B. RECOMMENDED FOR TODAY -->
+                        <div class="picker-section">
+                            <div class="picker-section-header">
+                                <span>🎯 RECOMMENDED FOR TODAY (${targetGroups.join(' + ')})</span>
+                                <span>${recommendedForSplit.length} exercises</span>
+                            </div>
+                            ${recommendedForSplit.map(r => renderPickerItem(r.exercise)).join('')}
+                        </div>
+
+                        <!-- C. ALL EXERCISES -->
+                        <div class="picker-section">
+                            <div class="picker-section-header">
+                                <span>📚 ALL EXERCISES</span>
+                                <span>${library.length} total</span>
+                            </div>
+                            ${library.map(ex => renderPickerItem(ex)).join('')}
+                        </div>
+                    ` : `
+                        <!-- Filtered List / Search Results -->
+                        ${displayList.length === 0 ? `
+                            <div style="text-align: center; padding: 36px 16px; color: var(--text-muted);">
+                                <span style="font-size: 32px; display: block; margin-bottom: 8px;">🔍</span>
+                                <h4 style="color: #fff; margin: 0 0 6px 0; font-size: 16px;">No exercises matching "${state.query}"</h4>
+                                <p style="font-size: 12.5px; margin: 0 0 16px 0;">Try searching another keyword or create a custom exercise.</p>
+                                <button class="btn-primary" style="padding: 8px 18px; font-size: 12.5px;" onclick="GymEngine.openCreateExerciseModal()">
+                                    ＋ Create Custom Exercise
+                                </button>
+                            </div>
+                        ` : `
+                            <div class="picker-section">
+                                <div class="picker-section-header">
+                                    <span>${query ? `SEARCH RESULTS FOR "${query}"` : activeFilter.toUpperCase()}</span>
+                                    <span>${displayList.length} exercises</span>
+                                </div>
+                                ${displayList.map(ex => renderPickerItem(ex)).join('')}
+                            </div>
+                        `}
+                    `}
+                </div>
+
+                <!-- Modal Footer -->
+                <div class="modal-footer" style="padding: 12px 20px; display: flex; justify-content: space-between; align-items: center; border-top: 1px solid rgba(255, 255, 255, 0.08); background: #0c1018;">
+                    <button class="action-btn-ghost" style="font-size: 12.5px; padding: 8px 14px;" onclick="GymEngine.openCreateExerciseModal()">
+                        ＋ Create Custom Exercise
+                    </button>
+                    <button class="action-btn-ghost" style="font-size: 12.5px; padding: 8px 18px;" onclick="GymEngine.closeExercisePickerModal()">
+                        Close
+                    </button>
+                </div>
+            </div>
+        `;
     },
 
     // -------------------------------------------------------------------------
@@ -1280,11 +2151,58 @@ const GymEngine = {
         this.updateRestTimerDisplay();
     },
 
+    openCustomRestTimerModal() {
+        let modal = document.getElementById('customRestTimerModal');
+        if (!modal) {
+            modal = document.createElement('div');
+            modal.className = 'modal-overlay';
+            modal.id = 'customRestTimerModal';
+            document.body.appendChild(modal);
+        }
+        modal.innerHTML = `
+            <div class="modal-window" style="width: min(380px, 92vw);">
+                <div class="modal-header">
+                    <div>
+                        <span class="wizard-modal-eyebrow">REST TIMER</span>
+                        <h3 class="wizard-modal-title">Custom Rest Duration</h3>
+                    </div>
+                    <button type="button" class="btn-close-modal" onclick="document.getElementById('customRestTimerModal').classList.remove('active')">×</button>
+                </div>
+                <div class="modal-body" style="padding: 18px 20px;">
+                    <label style="display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 6px;">Duration in seconds:</label>
+                    <input type="number" id="customRestTimerSec" class="form-input" value="75" min="5" max="600" style="width: 100%; font-size: 16px; font-weight: 700;">
+                    <div style="display: flex; gap: 6px; margin-top: 10px;">
+                        <button type="button" class="action-btn-ghost" style="padding: 4px 10px; font-size: 11px;" onclick="document.getElementById('customRestTimerSec').value = 45">45s</button>
+                        <button type="button" class="action-btn-ghost" style="padding: 4px 10px; font-size: 11px;" onclick="document.getElementById('customRestTimerSec').value = 75">75s</button>
+                        <button type="button" class="action-btn-ghost" style="padding: 4px 10px; font-size: 11px;" onclick="document.getElementById('customRestTimerSec').value = 150">150s</button>
+                    </div>
+                </div>
+                <div class="modal-footer" style="padding: 12px 20px; display: flex; justify-content: flex-end; gap: 8px;">
+                    <button class="action-btn-ghost" onclick="document.getElementById('customRestTimerModal').classList.remove('active')">Cancel</button>
+                    <button class="btn-primary" onclick="GymEngine.applyCustomRestTimer()">Start Timer</button>
+                </div>
+            </div>
+        `;
+        modal.classList.add('active');
+        const inp = document.getElementById('customRestTimerSec');
+        if (inp) {
+            if (typeof inp.focus === 'function') inp.focus();
+            if (typeof inp.select === 'function') inp.select();
+        }
+    },
+
+    applyCustomRestTimer() {
+        const inp = document.getElementById('customRestTimerSec');
+        const val = parseInt(inp?.value, 10);
+        if (val && val > 0) {
+            this.startRestTimer(val);
+        }
+        const modal = document.getElementById('customRestTimerModal');
+        if (modal) modal.classList.remove('active');
+    },
+
     promptCustomRestTimer() {
-        const inp = prompt('Enter rest duration in seconds (e.g. 45, 75, 150):', '60');
-        if (!inp) return;
-        const s = parseInt(inp.trim(), 10);
-        if (s > 0) this.startRestTimer(s);
+        this.openCustomRestTimerModal();
     },
 
     updateRestTimerDisplay() {
@@ -1423,8 +2341,15 @@ const GymEngine = {
         // If in exercise selection stage, select it immediately
         if (this.liveWorkout?.stage === 'select_exercises') {
             if (!this.liveWorkout.selectedExerciseIds) this.liveWorkout.selectedExerciseIds = [];
-            this.liveWorkout.selectedExerciseIds.push(newEx.id);
+            if (!this.liveWorkout.selectedExerciseIds.includes(newEx.id)) {
+                this.liveWorkout.selectedExerciseIds.push(newEx.id);
+            }
             Store.saveActiveWorkoutSession(this.liveWorkout);
+            this.closeExercisePickerModal();
+        } else if (this.liveWorkout?.stage === 'logging' || (this.liveWorkout && Array.isArray(this.liveWorkout.exercises))) {
+            this.addExerciseToActiveWorkout(newEx);
+        } else {
+            this.closeExercisePickerModal();
         }
 
         const modal = document.getElementById('createExerciseModal');

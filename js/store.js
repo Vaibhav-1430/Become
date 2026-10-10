@@ -2300,6 +2300,15 @@ class StorageManager {
     addCustomExercise(exerciseData) {
         const gym = this.getGymState();
         if (!gym.customExercises) gym.customExercises = [];
+        const normName = (exerciseData.name || '').trim().toLowerCase();
+        if (!normName) return null;
+
+        // Check against full exercise library (canonical + custom) to prevent duplicates
+        const existing = this.getExerciseLibrary().find(e => (e.name || '').trim().toLowerCase() === normName);
+        if (existing) {
+            return existing;
+        }
+
         const newEx = {
             id: 'ex_cust_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
             name: (exerciseData.name || '').trim(),
@@ -2795,7 +2804,11 @@ class StorageManager {
 
         const history = [];
         (gym.sessions || []).forEach(sess => {
-            const matchEx = (sess.exercises || []).find(e => (e.name || '').trim().toLowerCase() === nameQuery && !e.skipped);
+            const matchEx = (sess.exercises || []).find(e => {
+                const exName = (e.name || e.exerciseNameSnapshot || '').trim().toLowerCase();
+                const exId = (e.exerciseId || e.id || '').trim().toLowerCase();
+                return (exName === nameQuery || exId === nameQuery) && !e.skipped;
+            });
             if (matchEx && matchEx.sets && matchEx.sets.length > 0) {
                 let maxWt = 0;
                 let maxRp = 0;

@@ -14842,6 +14842,333 @@ html, body {
     color: #fca5a5;
 }
 
+/* ==========================================================================
+   FORGE SMART GYM WORKOUT EXPERIENCE & EXERCISE PICKER STYLES
+   ========================================================================== */
+.continue-prev-card {
+    background: linear-gradient(135deg, rgba(245, 197, 24, 0.08) 0%, rgba(18, 22, 34, 0.9) 100%);
+    border: 1px solid rgba(245, 197, 24, 0.35);
+    border-radius: var(--radius-md, 8px);
+    padding: 16px 20px;
+    margin-bottom: 22px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.35);
+}
+
+.continue-prev-info {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 220px;
+}
+
+.continue-prev-eyebrow {
+    font-size: 11px;
+    color: var(--gold, #f5c518);
+    font-weight: 800;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.continue-prev-title {
+    font-size: 15px;
+    font-weight: 700;
+    color: #fff;
+    margin: 0;
+}
+
+.continue-prev-meta {
+    font-size: 12px;
+    color: var(--text-muted, #8b949e);
+}
+
+.continue-prev-actions {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.usual-exercises-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 12px;
+    margin-bottom: 24px;
+}
+
+.usual-ex-card {
+    background: var(--card-bg, #121620);
+    border: 1px solid var(--border-line, rgba(255, 255, 255, 0.1));
+    border-radius: var(--radius-md, 8px);
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: 10px;
+    transition: all 0.15s ease;
+}
+
+.usual-ex-card:hover {
+    border-color: rgba(245, 197, 24, 0.4);
+    background: #151b28;
+    transform: translateY(-1px);
+}
+
+.usual-ex-card.selected {
+    border-color: var(--gold, #f5c518);
+    background: rgba(245, 197, 24, 0.08);
+}
+
+.usual-ex-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 8px;
+}
+
+.usual-ex-name {
+    font-size: 14.5px;
+    font-weight: 700;
+    color: #fff;
+    line-height: 1.3;
+}
+
+.usual-ex-pill {
+    font-size: 10.5px;
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text-secondary, #c9d1d9);
+    padding: 2px 8px;
+    border-radius: 4px;
+    white-space: nowrap;
+}
+
+.usual-ex-history {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    font-size: 11.5px;
+    color: var(--text-muted, #8b949e);
+}
+
+.usual-ex-history .highlight-stat {
+    color: var(--gold, #f5c518);
+    font-weight: 600;
+}
+
+.usual-ex-history .pr-stat {
+    color: #60a5fa;
+    font-weight: 600;
+}
+
+/* Custom Exercise Picker Modal Window */
+.exercise-picker-window {
+    width: min(720px, 95vw);
+    max-height: 88vh;
+    display: flex;
+    flex-direction: column;
+    background: #0f141f;
+    border: 1px solid var(--border-line, rgba(255, 255, 255, 0.15));
+    border-radius: var(--radius-lg, 12px);
+    overflow: hidden;
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.75);
+}
+
+.picker-search-bar {
+    padding: 14px 20px 10px 20px;
+    background: #111624;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.picker-filter-chips {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    padding-bottom: 4px;
+    scrollbar-width: none;
+}
+.picker-filter-chips::-webkit-scrollbar {
+    display: none;
+}
+
+.picker-filter-chip {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: var(--text-secondary, #c9d1d9);
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 11.5px;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.15s ease;
+}
+
+.picker-filter-chip:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: #fff;
+}
+
+.picker-filter-chip.active {
+    background: var(--gold, #f5c518);
+    color: #0b0e14;
+    border-color: var(--gold, #f5c518);
+    font-weight: 700;
+}
+
+.picker-body-scroll {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.picker-section {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.picker-section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 11.5px;
+    font-weight: 800;
+    letter-spacing: 0.8px;
+    color: var(--text-muted, #8b949e);
+    text-transform: uppercase;
+    padding-bottom: 4px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.picker-ex-item {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 8px;
+    padding: 12px 14px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    transition: all 0.15s ease;
+}
+
+.picker-ex-item:hover {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: rgba(255, 255, 255, 0.12);
+}
+
+.picker-ex-item.already-added {
+    opacity: 0.75;
+    background: rgba(16, 185, 129, 0.04);
+    border-color: rgba(16, 185, 129, 0.2);
+}
+
+.picker-ex-details {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    flex: 1;
+    min-width: 0;
+}
+
+.picker-ex-header-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.picker-ex-name-text {
+    font-size: 14px;
+    font-weight: 700;
+    color: #fff;
+    word-break: break-word;
+}
+
+.picker-ex-badge {
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text-muted, #8b949e);
+}
+
+.picker-ex-perf-row {
+    font-size: 11.5px;
+    color: var(--text-muted, #8b949e);
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.picker-add-action-btn {
+    padding: 7px 14px;
+    font-size: 12px;
+    font-weight: 700;
+    border-radius: 6px;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    border: 1px solid var(--gold, #f5c518);
+    background: rgba(245, 197, 24, 0.12);
+    color: var(--gold, #f5c518);
+}
+
+.picker-add-action-btn:hover {
+    background: var(--gold, #f5c518);
+    color: #000;
+}
+
+.picker-add-action-btn.added {
+    border-color: rgba(16, 185, 129, 0.4);
+    background: rgba(16, 185, 129, 0.15);
+    color: #34d399;
+    cursor: default;
+}
+
+@media (max-width: 480px) {
+    .exercise-picker-window {
+        width: 100vw;
+        height: 100vh;
+        max-height: 100vh;
+        border-radius: 0;
+    }
+    .picker-ex-item {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+    }
+    .picker-add-action-btn {
+        width: 100%;
+        text-align: center;
+        padding: 9px;
+    }
+    .continue-prev-card {
+        padding: 12px 14px;
+    }
+    .continue-prev-actions {
+        width: 100%;
+    }
+    .continue-prev-actions button {
+        flex: 1;
+    }
+}
+
+
 
 
 
