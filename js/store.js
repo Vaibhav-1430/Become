@@ -2460,8 +2460,11 @@ class StorageManager {
         const totalVolumeKg = (sessionData.totalVolumeKg ?? sessionData.total_volume_kg) ? Math.round(Number(sessionData.totalVolumeKg ?? sessionData.total_volume_kg)) : Math.round(calcVolume);
         const totalReps = (sessionData.totalReps ?? sessionData.total_reps) ? Number(sessionData.totalReps ?? sessionData.total_reps) : calcReps;
 
-        const photoPath = sessionData.gym_photo_path || sessionData.gymPhoto?.storagePath || null;
+        let photoPath = sessionData.gym_photo_path || sessionData.gymPhoto?.storagePath || null;
         const photoUrl = sessionData.gymPhoto?.url || sessionData.gym_photo_url || (sessionData.gymPhoto?.base64 && sessionData.gymPhoto.base64.startsWith('data:') ? sessionData.gymPhoto.base64 : null);
+        if (!photoPath && photoUrl && typeof SupabaseService !== 'undefined' && typeof SupabaseService.normalizeGymPhotoPath === 'function') {
+            photoPath = SupabaseService.normalizeGymPhotoPath(photoUrl) || null;
+        }
 
         const entry = {
             id: finalSessionId,
@@ -2531,6 +2534,30 @@ class StorageManager {
             return true;
         }
         return false;
+    }
+
+    updateWorkoutSessionPhoto(id, photoData = {}) {
+        const gym = this.getGymState();
+        if (!gym || !Array.isArray(gym.sessions)) return false;
+        const s = gym.sessions.find(item => item.id === id);
+        if (!s) return false;
+        let modified = false;
+        if (photoData.photoPath && s.gym_photo_path !== photoData.photoPath) {
+            s.gym_photo_path = photoData.photoPath;
+            if (!s.gymPhoto) s.gymPhoto = {};
+            s.gymPhoto.storagePath = photoData.photoPath;
+            modified = true;
+        }
+        if (photoData.photoUrl && s.gym_photo_url !== photoData.photoUrl) {
+            s.gym_photo_url = photoData.photoUrl;
+            if (!s.gymPhoto) s.gymPhoto = {};
+            s.gymPhoto.url = photoData.photoUrl;
+            modified = true;
+        }
+        if (modified) {
+            this.save(true);
+        }
+        return true;
     }
 
     toWorkoutSessionViewModel(s) {
@@ -2797,18 +2824,53 @@ class StorageManager {
         this.save();
     }
 
-    getExerciseHistory(exerciseName) {
+    getExerciseHistory(exerciseName, exerciseId = null) {
         const gym = this.getGymState();
-        const nameQuery = (exerciseName || '').trim().toLowerCase();
-        if (!nameQuery) return [];
+        const library = this.getExerciseLibrary ? this.getExerciseLibrary() : [];
+        let canonicalDef = null;
+        if (exerciseId) {
+            canonicalDef = library.find(item => item.id === exerciseId);
+        }
+        if (!canonicalDef && exerciseName) {
+            const norm = (exerciseName || '').trim().toLowerCase();
+            canonicalDef = library.find(item => (item.name || '').trim().toLowerCase() === norm);
+        }
+        const canonicalId = canonicalDef ? canonicalDef.id : (exerciseId || null);
+        const nameQuery = (canonicalDef ? canonicalDef.name : (exerciseName || '')).trim().toLowerCase();
+        if (!nameQuery && !canonicalId) return [];
+
+        const currentActiveId = gym.activeSession?.id || null;
+        const currentUserId = (typeof SupabaseService !== 'undefined' && SupabaseService.getUserId && SupabaseService.getUserId()) ||
+                              (this.getUserId ? this.getUserId() : null);
 
         const history = [];
         (gym.sessions || []).forEach(sess => {
+            if (!sess || !sess.date || typeof sess.date !== 'string') return;
+            if (currentActiveId && sess.id === currentActiveId) return;
+            if (sess.isDeleted === true || sess.deleted === true) return;
+            const status = (sess.status || 'completed').toString().trim().toLowerCase();
+            if (status === 'in_progress' || status === 'abandoned' || status === 'deleted') return;
+            if (status !== 'completed' && status !== 'done' && status !== 'finished') return;
+            if (currentUserId) {
+                const sessUser = sess.userId || sess.user_id || null;
+                if (sessUser && sessUser !== currentUserId && sessUser !== 'default_user') return;
+            }
+
             const matchEx = (sess.exercises || []).find(e => {
-                const exName = (e.name || e.exerciseNameSnapshot || '').trim().toLowerCase();
-                const exId = (e.exerciseId || e.id || '').trim().toLowerCase();
-                return (exName === nameQuery || exId === nameQuery) && !e.skipped;
+                if (!e || e.skipped) return false;
+                const eCanonicalId = e.exerciseId || e.exercise_id || null;
+                const eInstanceId = e.id || null;
+                const eName = (e.name || e.exerciseNameSnapshot || e.exerciseName || '').trim().toLowerCase();
+
+                if (canonicalId) {
+                    if (eCanonicalId && eCanonicalId === canonicalId) return true;
+                    if (eInstanceId && eInstanceId === canonicalId) return true;
+                }
+                if (!eCanonicalId && nameQuery && eName === nameQuery) return true;
+                if (!canonicalId && nameQuery && eName === nameQuery) return true;
+                return false;
             });
+
             if (matchEx && matchEx.sets && matchEx.sets.length > 0) {
                 let maxWt = 0;
                 let maxRp = 0;
@@ -2816,8 +2878,8 @@ class StorageManager {
                 let best1RM = 0;
 
                 matchEx.sets.forEach(s => {
-                    const wt = parseFloat(s.weightKg) || 0;
-                    const rp = parseInt(s.reps, 10) || 0;
+                    const wt = parseFloat(s.weightKg ?? s.weight_kg ?? 0) || 0;
+                    const rp = parseInt(s.reps ?? 0, 10) || 0;
                     if (wt > maxWt) maxWt = wt;
                     if (rp > maxRp) maxRp = rp;
                     vol += (wt * rp);

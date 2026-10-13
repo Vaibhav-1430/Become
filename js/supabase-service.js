@@ -1401,9 +1401,28 @@ const SupabaseService = {
     normalizeGymPhotoPath(rawPath) {
         if (!rawPath || typeof rawPath !== 'string') return '';
         let clean = rawPath.trim();
+        // If it's a full URL containing gym-photos, extract the path after gym-photos/
+        if (clean.includes('/gym-photos/')) {
+            clean = clean.split('/gym-photos/')[1] || clean;
+        }
+        // Strip query parameters (?token=... or ?t=...)
+        if (clean.includes('?')) {
+            clean = clean.split('?')[0];
+        }
+        // Strip URL hash
+        if (clean.includes('#')) {
+            clean = clean.split('#')[0];
+        }
         // Remove leading / or gym-photos/ or /gym-photos/
         clean = clean.replace(/^\/?gym-photos\//i, '');
         clean = clean.replace(/^\/+/, '');
+        try {
+            clean = decodeURIComponent(clean);
+        } catch (_) {}
+        // A valid storage object path in private bucket must contain user folder structure (at least one slash)
+        if (!clean.includes('/')) {
+            return '';
+        }
         return clean;
     },
 
@@ -1448,7 +1467,7 @@ const SupabaseService = {
         }
     },
 
-    async getSignedGymPhotoUrl(objectPath, expiresIn = 3600) {
+    async getSignedGymPhotoUrl(objectPath, expiresIn = 3600, forceRefresh = false) {
         if (!this.client || !objectPath) return null;
         try {
             const cleanPath = this.normalizeGymPhotoPath(objectPath);
@@ -1466,32 +1485,80 @@ const SupabaseService = {
 
             const cacheKey = `${currentUserId}:${cleanPath}`;
             if (!this._signedUrlCache) this._signedUrlCache = new Map();
-            const cached = this._signedUrlCache.get(cacheKey);
-            if (cached && cached.expiresAt > Date.now() + 60000) {
-                return cached.signedUrl;
+
+            if (!forceRefresh) {
+                const cached = this._signedUrlCache.get(cacheKey);
+                if (cached && cached.expiresAt > Date.now() + 60000) {
+                    return cached.signedUrl;
+                }
+            } else {
+                this._signedUrlCache.delete(cacheKey);
             }
 
-            const { data, error } = await this.client
-                .storage
-                .from('gym-photos')
-                .createSignedUrl(cleanPath, expiresIn);
-
-            if (error) {
-                console.warn('[SupabaseService] createSignedUrl error:', error.message);
-                return null;
+            // Deduplicate simultaneous in-flight requests for the exact same photo
+            if (!this._inFlightSignedUrlRequests) this._inFlightSignedUrlRequests = new Map();
+            if (this._inFlightSignedUrlRequests.has(cacheKey)) {
+                return await this._inFlightSignedUrlRequests.get(cacheKey);
             }
 
-            if (data && data.signedUrl) {
-                this._signedUrlCache.set(cacheKey, {
-                    signedUrl: data.signedUrl,
-                    expiresAt: Date.now() + (expiresIn * 1000)
-                });
-                return data.signedUrl;
-            }
-            return null;
+            const requestPromise = (async () => {
+                try {
+                    const { data, error } = await this.client
+                        .storage
+                        .from('gym-photos')
+                        .createSignedUrl(cleanPath, expiresIn);
+
+                    if (error) {
+                        console.warn('[SupabaseService] createSignedUrl error:', error.message);
+                        this._lastStorageError = {
+                            code: error.status || error.statusCode || 'STORAGE_ERROR',
+                            message: error.message
+                        };
+                        return null;
+                    }
+
+                    if (data && data.signedUrl) {
+                        this._lastStorageError = null;
+                        this._signedUrlCache.set(cacheKey, {
+                            signedUrl: data.signedUrl,
+                            expiresAt: Date.now() + (expiresIn * 1000)
+                        });
+                        return data.signedUrl;
+                    }
+                    return null;
+                } finally {
+                    if (this._inFlightSignedUrlRequests) {
+                        this._inFlightSignedUrlRequests.delete(cacheKey);
+                    }
+                }
+            })();
+
+            this._inFlightSignedUrlRequests.set(cacheKey, requestPromise);
+            return await requestPromise;
         } catch (e) {
+            console.error('[SupabaseService] getSignedGymPhotoUrl exception:', e);
             return null;
         }
+    },
+
+    invalidateSignedGymPhotoUrl(objectPath) {
+        if (!objectPath) return;
+        const cleanPath = this.normalizeGymPhotoPath(objectPath);
+        const currentUserId = this.getUserId();
+        if (this._signedUrlCache) {
+            if (currentUserId && cleanPath) {
+                this._signedUrlCache.delete(`${currentUserId}:${cleanPath}`);
+            }
+            for (const key of this._signedUrlCache.keys()) {
+                if (cleanPath && (key.endsWith(`:${cleanPath}`) || key === cleanPath)) {
+                    this._signedUrlCache.delete(key);
+                }
+            }
+        }
+    },
+
+    getLastStorageError() {
+        return this._lastStorageError || null;
     },
 
     // -------------------------------------------------------------------------

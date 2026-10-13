@@ -785,7 +785,25 @@ const GymEngine = {
     getPersonalizedRecommendations(targetMuscleGroups = [], routineName = '') {
         const library = Store.getExerciseLibrary();
         const gym = Store.getGymState();
-        const sessions = (gym.sessions || []).filter(s => s.status === 'completed' || !s.status);
+        const currentActiveId = this.liveWorkout?.id || ((typeof Store !== 'undefined' && Store.getActiveWorkoutSession) ? Store.getActiveWorkoutSession()?.id : null);
+        const currentUserId = (typeof SupabaseService !== 'undefined' && SupabaseService.getUserId && SupabaseService.getUserId()) ||
+                              (typeof Store !== 'undefined' && Store.getUserId && Store.getUserId()) || null;
+
+        const sessions = (gym.sessions || []).filter(s => {
+            if (!s || !s.date || typeof s.date !== 'string') return false;
+            if (currentActiveId && s.id === currentActiveId) return false;
+            if (this.liveWorkout && s === this.liveWorkout) return false;
+            if (s.isDeleted === true || s.deleted === true) return false;
+            const status = (s.status || 'completed').toString().trim().toLowerCase();
+            if (status === 'in_progress' || status === 'abandoned' || status === 'deleted') return false;
+            if (status !== 'completed' && status !== 'done' && status !== 'finished') return false;
+            if (currentUserId) {
+                const sessUser = s.userId || s.user_id || null;
+                if (sessUser && sessUser !== currentUserId && sessUser !== 'default_user') return false;
+            }
+            return true;
+        });
+
         const normGroups = (targetMuscleGroups || []).map(g => (g || '').trim().toLowerCase());
         const normRoutine = (routineName || '').trim().toLowerCase();
         const now = Date.now();
@@ -808,8 +826,17 @@ const GymEngine = {
                 const isComparable = normRoutine && (sess.routineName || sess.workoutType || '').trim().toLowerCase() === normRoutine;
 
                 const matchEx = (sess.exercises || []).find(e => {
-                    const eName = (e.name || e.exerciseNameSnapshot || '').trim().toLowerCase();
-                    return (eName === normExName || e.exerciseId === ex.id || e.id === ex.id) && !e.skipped;
+                    if (!e || e.skipped) return false;
+                    const eCanonicalId = e.exerciseId || e.exercise_id || null;
+                    const eInstanceId = e.id || null;
+                    const eName = (e.name || e.exerciseNameSnapshot || e.exerciseName || '').trim().toLowerCase();
+
+                    if (ex.id) {
+                        if (eCanonicalId && eCanonicalId === ex.id) return true;
+                        if (eInstanceId && eInstanceId === ex.id) return true;
+                    }
+                    if (!eCanonicalId && normExName && eName === normExName) return true;
+                    return false;
                 });
 
                 if (matchEx) {
@@ -824,8 +851,8 @@ const GymEngine = {
                         let bestWt = 0;
                         let bestReps = 0;
                         (matchEx.sets || []).forEach(s => {
-                            const wt = parseFloat(s.weightKg) || 0;
-                            const rp = parseInt(s.reps, 10) || 0;
+                            const wt = parseFloat(s.weightKg ?? s.weight_kg ?? 0) || 0;
+                            const rp = parseInt(s.reps ?? 0, 10) || 0;
                             if (wt > bestWt || (wt === bestWt && rp > bestReps)) {
                                 bestWt = wt;
                                 bestReps = rp;
@@ -876,36 +903,130 @@ const GymEngine = {
         };
     },
 
-    getExercisePerformanceDetails(exerciseName, exerciseId = null) {
+    getExercisePerformanceDetails(exerciseName, exerciseId = null, excludeSessionId = null) {
         const gym = Store.getGymState();
-        const normName = (exerciseName || '').trim().toLowerCase();
-        const sessions = (gym.sessions || []).filter(s => s.status === 'completed' || !s.status);
+        const library = (typeof Store !== 'undefined' && Store.getExerciseLibrary) ? Store.getExerciseLibrary() : [];
+
+        let canonicalDef = null;
+        if (exerciseId) {
+            canonicalDef = library.find(item => item.id === exerciseId);
+        }
+        if (!canonicalDef && exerciseName) {
+            const norm = (exerciseName || '').trim().toLowerCase();
+            canonicalDef = library.find(item => (item.name || '').trim().toLowerCase() === norm);
+        }
+
+        const canonicalId = canonicalDef ? canonicalDef.id : (exerciseId || null);
+        const canonicalName = canonicalDef ? canonicalDef.name : (exerciseName || '');
+        const targetNormName = (canonicalName || exerciseName || '').trim().toLowerCase();
+
+        const currentActiveId = excludeSessionId || this.liveWorkout?.id || ((typeof Store !== 'undefined' && Store.getActiveWorkoutSession) ? Store.getActiveWorkoutSession()?.id : null);
+        const currentUserId = (typeof SupabaseService !== 'undefined' && SupabaseService.getUserId && SupabaseService.getUserId()) ||
+                              (typeof Store !== 'undefined' && Store.getUserId && Store.getUserId()) || null;
+
+        // Filter valid, previously recorded historical sessions
+        const eligibleSessions = (gym.sessions || []).filter(s => {
+            if (!s || !s.date || typeof s.date !== 'string') return false;
+
+            // Exclude current active workout session
+            if (currentActiveId && s.id === currentActiveId) return false;
+            if (this.liveWorkout && s === this.liveWorkout) return false;
+
+            // Filter out invalid/deleted records
+            if (s.isDeleted === true || s.deleted === true) return false;
+            const status = (s.status || 'completed').toString().trim().toLowerCase();
+            if (status === 'in_progress' || status === 'abandoned' || status === 'deleted') return false;
+            if (status !== 'completed' && status !== 'done' && status !== 'finished') return false;
+
+            // User isolation
+            if (currentUserId) {
+                const sessUser = s.userId || s.user_id || null;
+                if (sessUser && sessUser !== currentUserId && sessUser !== 'default_user') {
+                    return false;
+                }
+            }
+
+            return true;
+        });
+
+        // Sort sessions strictly by actual workout date (descending), then session timestamp (descending)
+        eligibleSessions.sort((a, b) => {
+            const dateA = (a.date || '').slice(0, 10);
+            const dateB = (b.date || '').slice(0, 10);
+            const dateCmp = dateB.localeCompare(dateA);
+            if (dateCmp !== 0) return dateCmp;
+
+            const timeA = a.completedAt || a.endedAt || a.startedAt || a.createdAt || a.created_at || a.updatedAt || a.updated_at || '';
+            const timeB = b.completedAt || b.endedAt || b.startedAt || b.createdAt || b.created_at || b.updatedAt || b.updated_at || '';
+            if (timeA && timeB) {
+                const msA = new Date(timeA).getTime();
+                const msB = new Date(timeB).getTime();
+                if (!isNaN(msA) && !isNaN(msB) && msA !== msB) {
+                    return msB - msA;
+                }
+                return timeB.localeCompare(timeA);
+            }
+            if (timeB && !timeA) return 1;
+            if (timeA && !timeB) return -1;
+            return 0;
+        });
 
         let lastSession = null;
         let lastEx = null;
 
-        for (let i = sessions.length - 1; i >= 0; i--) {
-            const sess = sessions[i];
+        for (let i = 0; i < eligibleSessions.length; i++) {
+            const sess = eligibleSessions[i];
             const matchEx = (sess.exercises || []).find(e => {
-                const eName = (e.name || e.exerciseNameSnapshot || '').trim().toLowerCase();
-                return (eName === normName || (exerciseId && (e.exerciseId === exerciseId || e.id === exerciseId))) && !e.skipped;
+                if (!e || e.skipped) return false;
+
+                const eCanonicalId = e.exerciseId || e.exercise_id || null;
+                const eInstanceId = e.id || null;
+                const eName = (e.name || e.exerciseNameSnapshot || e.exerciseName || '').trim().toLowerCase();
+
+                // 1. Match using canonical IDs wherever available
+                if (canonicalId) {
+                    if (eCanonicalId && eCanonicalId === canonicalId) return true;
+                    if (eInstanceId && eInstanceId === canonicalId) return true;
+                }
+
+                // 2. Reliable fallback matching for legacy records without canonical IDs
+                if (!eCanonicalId) {
+                    if (targetNormName && eName === targetNormName) return true;
+                } else if (!canonicalId) {
+                    if (targetNormName && eName === targetNormName) return true;
+                }
+
+                return false;
             });
-            if (matchEx && matchEx.sets && matchEx.sets.length > 0) {
-                lastSession = sess;
-                lastEx = matchEx;
-                break;
+
+            if (matchEx && Array.isArray(matchEx.sets) && matchEx.sets.length > 0) {
+                const hasRecordedSet = matchEx.sets.some(s => {
+                    const wt = parseFloat(s.weightKg ?? s.weight_kg ?? 0) || 0;
+                    const rp = parseInt(s.reps ?? 0, 10) || 0;
+                    return s.completed === true || rp > 0 || wt > 0 || s.completed !== false;
+                });
+
+                if (hasRecordedSet) {
+                    lastSession = sess;
+                    lastEx = matchEx;
+                    break;
+                }
             }
         }
 
-        const prs = Store.getExercisePRs();
-        const pr = (prs.exercises || []).find(p => (p.name || '').trim().toLowerCase() === normName);
+        const prs = (typeof Store !== 'undefined' && Store.getExercisePRs) ? Store.getExercisePRs() : { exercises: [] };
+        const pr = (prs.exercises || []).find(p => (p.name || '').trim().toLowerCase() === targetNormName || (canonicalId && p.exerciseId === canonicalId));
 
         if (!lastSession || !lastEx) {
             return {
                 hasHistory: false,
+                lastSessionDate: null,
+                lastPerformedDate: null,
                 lastPerformedFormatted: 'No previous performance recorded.',
                 previousSetsText: 'No previous performance recorded.',
+                setLines: [],
                 previousBestSetFormatted: 'No previous set recorded.',
+                previousBestSet: null,
                 allTimePrFormatted: pr && pr.heaviest && pr.heaviest.weightKg > 0 
                     ? `${pr.heaviest.weightKg} kg × ${pr.heaviest.reps} reps` 
                     : 'No PR recorded.',
@@ -917,15 +1038,35 @@ const GymEngine = {
         let bestWt = 0;
         let bestReps = 0;
 
-        const setStrings = (lastEx.sets || []).map((s, idx) => {
-            const wt = parseFloat(s.weightKg) || 0;
-            const rp = parseInt(s.reps, 10) || 0;
+        const mappedSets = (lastEx.sets || []).map((s, idx) => {
+            const wt = parseFloat(s.weightKg ?? s.weight_kg ?? 0) || 0;
+            const rp = parseInt(s.reps ?? 0, 10) || 0;
+            const rpeRaw = s.rpe ?? s.rpe_value ?? null;
+            const rpe = (rpeRaw !== null && rpeRaw !== undefined && rpeRaw !== '' && !isNaN(Number(rpeRaw))) 
+                ? Number(rpeRaw) 
+                : null;
+            return {
+                id: s.id || ('set_' + (idx + 1)),
+                setNumber: Number(s.setNumber ?? s.set_number ?? (idx + 1)),
+                weightKg: wt,
+                reps: rp,
+                rpe: rpe,
+                completed: s.completed !== false,
+                isWeightPr: !!s.isWeightPr,
+                isRepPr: !!s.isRepPr
+            };
+        });
+
+        const setStrings = mappedSets.map((s, idx) => {
+            const wt = s.weightKg;
+            const rp = s.reps;
             if (wt > bestWt || (wt === bestWt && rp > bestReps)) {
                 bestWt = wt;
                 bestReps = rp;
                 bestSet = s;
             }
-            return `Set ${s.setNumber || idx + 1} — ${wt > 0 ? wt + ' kg' : 'Bodyweight'} × ${rp} reps`;
+            const rpePart = s.rpe !== null ? ` @ RPE ${s.rpe}` : '';
+            return `Set ${s.setNumber || idx + 1} — ${wt > 0 ? wt + ' kg' : 'Bodyweight'} × ${rp} reps${rpePart}`;
         });
 
         const bestSetFormatted = bestSet 
@@ -945,23 +1086,63 @@ const GymEngine = {
             previousSetsText: setStrings.join(' • '),
             setLines: setStrings,
             previousBestSetFormatted: bestSetFormatted,
+            previousBestSet: bestSet ? { weightKg: bestSet.weightKg, reps: bestSet.reps, rpe: bestSet.rpe } : null,
             allTimePrFormatted,
-            sets: lastEx.sets || []
+            sets: mappedSets
         };
     },
 
     getPreviousComparableSession(targetMuscleGroups = null, routineName = null) {
         const currentRoutine = (routineName || this.liveWorkout?.routineName || '').trim().toLowerCase();
         const currentGroups = (targetMuscleGroups || this.liveWorkout?.targetMuscleGroups || []).map(g => (g || '').trim().toLowerCase());
-        const currentId = this.liveWorkout?.id || null;
-        const sessions = (Store.getGymState().sessions || []).filter(s => (s.status === 'completed' || !s.status) && (!currentId || s.id !== currentId));
+        const currentId = this.liveWorkout?.id || ((typeof Store !== 'undefined' && Store.getActiveWorkoutSession) ? Store.getActiveWorkoutSession()?.id : null);
+        
+        const currentUserId = (typeof SupabaseService !== 'undefined' && SupabaseService.getUserId && SupabaseService.getUserId()) ||
+                              (typeof Store !== 'undefined' && Store.getUserId && Store.getUserId()) || null;
+
+        const sessions = (Store.getGymState().sessions || []).filter(s => {
+            if (!s || !s.date || typeof s.date !== 'string') return false;
+            if (currentId && s.id === currentId) return false;
+            if (this.liveWorkout && s === this.liveWorkout) return false;
+            if (s.isDeleted === true || s.deleted === true) return false;
+            const status = (s.status || 'completed').toString().trim().toLowerCase();
+            if (status === 'in_progress' || status === 'abandoned' || status === 'deleted') return false;
+            if (status !== 'completed' && status !== 'done' && status !== 'finished') return false;
+            if (currentUserId) {
+                const sessUser = s.userId || s.user_id || null;
+                if (sessUser && sessUser !== currentUserId && sessUser !== 'default_user') return false;
+            }
+            return true;
+        });
 
         if (sessions.length === 0) return null;
 
-        for (let i = sessions.length - 1; i >= 0; i--) {
+        // Sort descending: newest to oldest
+        sessions.sort((a, b) => {
+            const dateA = (a.date || '').slice(0, 10);
+            const dateB = (b.date || '').slice(0, 10);
+            const dateCmp = dateB.localeCompare(dateA);
+            if (dateCmp !== 0) return dateCmp;
+
+            const timeA = a.completedAt || a.endedAt || a.startedAt || a.createdAt || a.created_at || '';
+            const timeB = b.completedAt || b.endedAt || b.startedAt || b.createdAt || b.created_at || '';
+            if (timeA && timeB) {
+                const msA = new Date(timeA).getTime();
+                const msB = new Date(timeB).getTime();
+                if (!isNaN(msA) && !isNaN(msB) && msA !== msB) {
+                    return msB - msA;
+                }
+                return timeB.localeCompare(timeA);
+            }
+            if (timeB && !timeA) return 1;
+            if (timeA && !timeB) return -1;
+            return 0;
+        });
+
+        for (let i = 0; i < sessions.length; i++) {
             const sess = sessions[i];
             const sessRoutine = (sess.routineName || sess.workoutType || '').trim().toLowerCase();
-            const hasExercises = (sess.exercises || []).some(e => !e.skipped);
+            const hasExercises = (sess.exercises || []).some(e => e && !e.skipped);
             if (!hasExercises) continue;
 
             if (currentRoutine && sessRoutine === currentRoutine) {
@@ -974,9 +1155,9 @@ const GymEngine = {
             }
         }
 
-        for (let i = sessions.length - 1; i >= 0; i--) {
+        for (let i = 0; i < sessions.length; i++) {
             const sess = sessions[i];
-            if ((sess.exercises || []).some(e => !e.skipped)) {
+            if ((sess.exercises || []).some(e => e && !e.skipped)) {
                 return sess;
             }
         }
@@ -1536,7 +1717,10 @@ const GymEngine = {
                         }
 
                         const perf = this.getExercisePerformanceDetails(ex.name, ex.exerciseId);
-                        const prevSets = ex.previousSets && ex.previousSets.length > 0 ? ex.previousSets : perf.sets;
+                        const prevSets = (perf.hasHistory && perf.sets && perf.sets.length > 0) ? perf.sets : (ex.previousSets && ex.previousSets.length > 0 ? ex.previousSets : []);
+                        if (perf.hasHistory && perf.sets && perf.sets.length > 0) {
+                            ex.previousSets = perf.sets;
+                        }
                         const prevRefText = perf.hasHistory
                             ? perf.previousSetsText
                             : 'No previous performance recorded.';
@@ -2433,41 +2617,55 @@ const GymEngine = {
                             const rawWType = (s.workoutType || s.routineName || '').toString().trim();
                             const wType = (rawWType && rawWType !== 'undefined' && rawWType !== 'null') ? rawWType : 'Workout type not recorded';
                             const dur = s.durationMinutes || s.duration || 0;
-                            const exCount = s.exerciseCount || s.exercises?.length || 0;
+                            const exCount = s.exerciseCount || (s.exercises && s.exercises.length) || 0;
                             const setCount = s.setCount || s.totalSets || 0;
-                            const vol = (s.totalVolumeKg || 0).toLocaleString();
+                            const hasVolume = typeof s.totalVolumeKg === 'number' && s.totalVolumeKg > 0;
+                            const volText = hasVolume ? `${s.totalVolumeKg.toLocaleString()} kg` : null;
                             const status = (s.status || 'COMPLETED').toUpperCase();
+                            const statusLower = (s.status || 'completed').toLowerCase();
+                            const dayName = s.dayOfWeek || (s.dayKey ? (s.dayKey.charAt(0).toUpperCase() + s.dayKey.slice(1)) : '') || '';
+
+                            const musclesList = (s.targetMuscleGroups && Array.isArray(s.targetMuscleGroups) && s.targetMuscleGroups.length > 0)
+                                ? s.targetMuscleGroups
+                                : (s.exercises && Array.isArray(s.exercises) && s.exercises.length > 0)
+                                    ? Array.from(new Set(s.exercises.map(e => e.muscleGroup).filter(Boolean)))
+                                    : [];
+                            const muscleGroupsText = musclesList.length > 0 ? musclesList.join(', ') : '';
+                            const showMuscleTag = muscleGroupsText && muscleGroupsText.toLowerCase() !== wType.toLowerCase();
 
                             return `
                                 <div class="history-session-card" id="history-card-${s.id}">
                                     <div class="h-sess-left">
-                                        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 2px;">
-                                            <span style="color: var(--emerald);">🟢</span>
+                                        <div class="h-sess-header-row">
+                                            <span class="h-sess-status-dot ${statusLower}"></span>
                                             <span class="h-sess-date">${s.date}</span>
-                                            <span class="h-sess-badge-status" style="font-size: 10.5px; background: rgba(16, 185, 129, 0.15); color: var(--emerald); padding: 2px 7px; border-radius: 4px; font-weight: 700; letter-spacing: 0.5px;">${status}</span>
-                                            <span style="font-size: 11px; color: var(--text-muted);">(${s.dayOfWeek || s.dayKey || ''})</span>
+                                            <span class="h-sess-badge-status ${statusLower}">${status}</span>
+                                            ${dayName ? `<span class="h-sess-day">(${dayName})</span>` : ''}
                                         </div>
-                                        <h4 class="h-sess-title" style="margin: 2px 0 6px 0; font-size: 17px; font-weight: 700; color: #fff;">${wType}</h4>
+                                        <div class="h-sess-title-row">
+                                            <h4 class="h-sess-title">${wType}</h4>
+                                            ${showMuscleTag ? `<span class="h-sess-muscles">${muscleGroupsText}</span>` : ''}
+                                        </div>
                                         <div class="h-sess-meta">
-                                            <span>⏱ ${dur} min</span>
-                                            <span>🏋️ ${exCount} exercises</span>
-                                            <span>📊 ${setCount} sets</span>
-                                            <span>📈 Volume: ${vol} kg</span>
+                                            <span class="h-sess-meta-item">⏱ <b>${dur} min</b></span>
+                                            <span class="h-sess-meta-item">🏋️ <b>${exCount} exercises</b></span>
+                                            <span class="h-sess-meta-item">📊 <b>${setCount} sets</b></span>
+                                            ${volText ? `<span class="h-sess-meta-item">📈 Volume: <b>${volText}</b></span>` : ''}
                                         </div>
                                     </div>
-                                    <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                                    <div class="h-sess-actions">
                                         ${hasPhoto ? `
-                                            <button class="btn-view-photo" onclick="GymEngine.viewSessionPhoto('${s.id}')">
+                                            <button type="button" class="btn-view-photo" onclick="GymEngine.viewSessionPhoto('${s.id}')" title="View gym check-in photo">
                                                 📸 VIEW PHOTO
                                             </button>
                                         ` : ''}
-                                        <button class="action-btn-ghost btn-export-single-workout" onclick="GymEngine.exportSingleWorkout('${s.id}')" title="Export this workout session as PDF">
+                                        <button type="button" class="action-btn-ghost btn-export-single-workout" onclick="GymEngine.exportSingleWorkout('${s.id}')" title="Export this workout session as PDF">
                                             📄 EXPORT PDF
                                         </button>
-                                        <button class="action-btn-ghost" onclick="GymEngine.viewSessionDetails('${s.id}')">
+                                        <button type="button" class="action-btn-ghost btn-view-workout" onclick="GymEngine.viewSessionDetails('${s.id}')" title="View workout exercises and sets">
                                             VIEW WORKOUT ↗
                                         </button>
-                                        <button class="action-btn-ghost danger btn-delete-workout" onclick="GymEngine.confirmDeleteWorkout('${s.id}')" title="Delete this workout session">
+                                        <button type="button" class="action-btn-ghost danger btn-delete-workout" onclick="GymEngine.confirmDeleteWorkout('${s.id}')" title="Delete this workout session">
                                             🗑️ DELETE
                                         </button>
                                     </div>
@@ -2485,12 +2683,17 @@ const GymEngine = {
         this.render();
     },
 
-    async viewSessionPhoto(id) {
+    async viewSessionPhoto(id, forceRefresh = false, retryCount = 0) {
         const s = Store.getWorkoutSessionById(id);
         if (!s) return;
-        const photoPath = s.gym_photo_path || s.gymPhoto?.storagePath;
-        let photoUrl = s.gymPhoto?.url || s.gym_photo_url || (s.gymPhoto?.base64 && s.gymPhoto.base64.startsWith('data:') ? s.gymPhoto.base64 : null);
 
+        // Reset retry map on manual user request
+        if (!this._photoRetryMap) this._photoRetryMap = {};
+        if (forceRefresh) {
+            this._photoRetryMap[id] = 0;
+        }
+
+        // 1. Get or create modal overlay
         let modal = document.getElementById('gymPhotoViewModal');
         if (!modal) {
             modal = document.createElement('div');
@@ -2503,16 +2706,37 @@ const GymEngine = {
             if (e.target === modal) modal.classList.remove('active');
         };
 
-        const hasAnyPhoto = !!(photoPath || photoUrl);
+        // 2. Identify photo artifacts
+        const base64Data = (s.gymPhoto?.base64 && s.gymPhoto.base64.startsWith('data:')) ? s.gymPhoto.base64 : null;
+        let photoPath = s.gym_photo_path || s.gymPhoto?.storagePath || null;
+        const existingUrl = s.gymPhoto?.url || s.gym_photo_url || null;
+
+        // Compatibility fallback: recover storage path if only url or session metadata exists
+        if (!photoPath && existingUrl && typeof SupabaseService !== 'undefined') {
+            photoPath = SupabaseService.normalizeGymPhotoPath(existingUrl) || null;
+        }
+        if ((!photoPath || !photoPath.includes('/')) && (existingUrl || s.gymPhoto || s.gym_photo_id)) {
+            const userId = (typeof SupabaseService !== 'undefined' ? SupabaseService.getUserId() : null) || s.userId || s.user_id;
+            if (userId && s.id && s.date) {
+                const parts = s.date.split('-');
+                if (parts.length >= 2) {
+                    photoPath = `${userId}/${parts[0]}/${parts[1]}/${s.id}.jpg`;
+                }
+            }
+        }
+
+        const hasAnyPhoto = !!(base64Data || photoPath || existingUrl);
         const capturedTimeText = s.gymPhoto?.createdAt || s.gym_photo_created_at || s.completedAt || s.startedAt || s.date;
         const formattedCaptured = capturedTimeText ? new Date(capturedTimeText).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : 'Verified';
+        const workoutTitle = (s.routineName || s.workoutType || 'Gym Workout');
 
+        // 3. Render modal shell
         modal.innerHTML = `
             <div class="modal-window gym-checkin-modal-window" style="max-width: 600px;">
                 <div class="modal-header">
                     <div>
                         <span class="wizard-modal-eyebrow">GYM CHECK-IN PHOTO</span>
-                        <h3 class="wizard-modal-title">${s.routineName} — ${s.date}</h3>
+                        <h3 class="wizard-modal-title">${workoutTitle} — ${s.date}</h3>
                     </div>
                     <button type="button" class="btn-close-modal" onclick="document.getElementById('gymPhotoViewModal').classList.remove('active')">×</button>
                 </div>
@@ -2521,11 +2745,9 @@ const GymEngine = {
                         ${!hasAnyPhoto ? `
                             <div style="text-align: center; padding: 24px;">
                                 <span style="font-size: 32px; display: block; margin-bottom: 8px;">📷</span>
-                                <div style="font-weight: 700; color: #fff; font-size: 14px; margin-bottom: 4px;">PHOTO UNAVAILABLE</div>
+                                <div style="font-weight: 700; color: #fff; font-size: 14px; margin-bottom: 4px;">NO PHOTO RECORDED</div>
                                 <div style="color: var(--text-muted); font-size: 12px; max-width: 320px;">No gym check-in photo recorded for this workout session.</div>
                             </div>
-                        ` : photoUrl ? `
-                            <img src="${photoUrl}" alt="Gym Check-In Photo" class="camera-preview-img" onerror="GymEngine.handlePhotoLoadError(this, '${s.id}')">
                         ` : `
                             <div id="gymPhotoLoadingState" style="text-align: center; padding: 24px;">
                                 <div class="gym-photo-spinner" style="width: 36px; height: 36px; border: 3px solid rgba(245,197,24,0.2); border-top-color: var(--gold); border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 12px auto;"></div>
@@ -2534,76 +2756,151 @@ const GymEngine = {
                             </div>
                         `}
                     </div>
-                    <div style="display: flex; justify-content: space-between; align-items: center; color: var(--text-secondary); font-size: 12px; margin-top: 10px;">
-                        <span>Session ID: ${s.id}</span>
+                    <div style="display: flex; justify-content: space-between; align-items: center; color: var(--text-secondary); font-size: 12px; margin-top: 10px; flex-wrap: wrap; gap: 8px;">
+                        <span>Session ID: <code style="font-size: 11px; color: var(--forge-text-muted);">${s.id}</code></span>
                         <span>Captured: ${formattedCaptured}</span>
                     </div>
                 </div>
-                <div class="modal-footer" style="display: flex; justify-content: flex-end; padding: 14px 20px;">
-                    <button class="btn-primary" onclick="document.getElementById('gymPhotoViewModal').classList.remove('active')">Close</button>
+                <div class="modal-footer" id="gymPhotoModalFooter" style="display: flex; justify-content: ${hasAnyPhoto ? 'space-between' : 'flex-end'}; align-items: center; padding: 14px 20px; gap: 10px;">
+                    ${hasAnyPhoto ? `
+                        <button type="button" class="action-btn-ghost btn-gym-photo-refresh" style="font-size: 12px; padding: 6px 14px; width: auto; display: inline-flex; align-items: center; gap: 6px;" onclick="GymEngine.viewSessionPhoto('${s.id}', true, 1)">
+                            🔄 Refresh Photo
+                        </button>
+                    ` : ''}
+                    <button type="button" class="btn-primary" onclick="document.getElementById('gymPhotoViewModal').classList.remove('active')">Close</button>
                 </div>
             </div>
         `;
 
         modal.classList.add('active');
 
-        // If we need to fetch signed URL from Supabase Storage
-        if (!photoUrl && photoPath) {
-            if (typeof SupabaseService !== 'undefined' && SupabaseService.isAuthenticated()) {
-                SupabaseService.getSignedGymPhotoUrl(photoPath).then(signedUrl => {
-                    const container = document.getElementById('gymPhotoContainer');
-                    if (!container) return;
-                    if (signedUrl) {
-                        container.innerHTML = `<img src="${signedUrl}" alt="Gym Check-In Photo" class="camera-preview-img" onerror="GymEngine.handlePhotoLoadError(this, '${s.id}')">`;
-                    } else {
-                        container.innerHTML = `
-                            <div style="text-align: center; padding: 24px;">
-                                <span style="font-size: 32px; display: block; margin-bottom: 8px;">⚠️</span>
-                                <div style="font-weight: 700; color: #fff; font-size: 14px; margin-bottom: 4px;">PHOTO UNAVAILABLE</div>
-                                <div style="color: var(--text-muted); font-size: 12px; max-width: 340px; margin-bottom: 12px;">Could not generate secure temporary URL. Access was denied or photo expired.</div>
-                                <button class="action-btn-ghost" style="font-size: 12px; padding: 4px 12px;" onclick="GymEngine.viewSessionPhoto('${s.id}')">Retry 🔄</button>
-                            </div>
-                        `;
-                    }
-                }).catch(err => {
-                    console.warn('[Gym] Error getting signed photo URL:', err);
-                    const container = document.getElementById('gymPhotoContainer');
-                    if (container) {
-                        container.innerHTML = `
-                            <div style="text-align: center; padding: 24px;">
-                                <span style="font-size: 32px; display: block; margin-bottom: 8px;">⚠️</span>
-                                <div style="font-weight: 700; color: #fff; font-size: 14px; margin-bottom: 4px;">PHOTO UNAVAILABLE</div>
-                                <div style="color: var(--text-muted); font-size: 12px; max-width: 340px; margin-bottom: 12px;">Network error while fetching photo from cloud storage.</div>
-                                <button class="action-btn-ghost" style="font-size: 12px; padding: 4px 12px;" onclick="GymEngine.viewSessionPhoto('${s.id}')">Retry 🔄</button>
-                            </div>
-                        `;
-                    }
-                });
+        const container = document.getElementById('gymPhotoContainer');
+        if (!container) return;
+
+        if (!hasAnyPhoto) {
+            container.innerHTML = `
+                <div style="text-align: center; padding: 24px;">
+                    <span style="font-size: 32px; display: block; margin-bottom: 8px;">📷</span>
+                    <div style="font-weight: 700; color: #fff; font-size: 14px; margin-bottom: 4px;">NO PHOTO RECORDED</div>
+                    <div style="color: var(--text-muted); font-size: 12px; max-width: 320px;">No gym check-in photo recorded for this workout session.</div>
+                </div>
+            `;
+            return;
+        }
+
+        // Case 1: Local base64 image (offline captured, does not expire)
+        if (base64Data) {
+            container.innerHTML = `<img src="${base64Data}" alt="Gym Check-In Photo" class="camera-preview-img" style="max-height: 420px; object-fit: contain;">`;
+            return;
+        }
+
+        // Case 2: Offline status check
+        const isOffline = (typeof navigator !== 'undefined' && navigator.onLine === false) ||
+                          (typeof window !== 'undefined' && window.navigator && window.navigator.onLine === false);
+        if (isOffline) {
+            this.renderPhotoErrorUI(container, s.id, 'OFFLINE', 'You are currently offline. Connect to the internet to load private cloud photos.', true);
+            return;
+        }
+
+        // Case 3: Supabase authentication check
+        if (typeof SupabaseService === 'undefined' || !SupabaseService.isAuthenticated()) {
+            this.renderPhotoErrorUI(container, s.id, 'AUTH_REQUIRED', 'Authentication required to view private gym check-in photo.', false);
+            return;
+        }
+
+        if (!photoPath) {
+            this.renderPhotoErrorUI(container, s.id, 'NOT_FOUND', 'The photo could not be rendered or the temporary signed URL has expired.', true);
+            return;
+        }
+
+        try {
+            // If forceRefresh, explicitly invalidate cache first
+            if (forceRefresh && typeof SupabaseService.invalidateSignedGymPhotoUrl === 'function') {
+                SupabaseService.invalidateSignedGymPhotoUrl(photoPath);
+            }
+
+            const signedUrl = await SupabaseService.getSignedGymPhotoUrl(photoPath, 3600, forceRefresh);
+            
+            if (!signedUrl) {
+                const lastErr = typeof SupabaseService.getLastStorageError === 'function' ? SupabaseService.getLastStorageError() : null;
+                const isNotFound = lastErr && (lastErr.code === 404 || lastErr.message?.toLowerCase().includes('not found'));
+                const isDenied = lastErr && (lastErr.code === 403 || lastErr.message?.toLowerCase().includes('unauthorized') || lastErr.message?.toLowerCase().includes('policy') || lastErr.message?.toLowerCase().includes('security warning'));
+                
+                let msg = 'The photo could not be rendered or the temporary signed URL has expired.';
+                let errType = 'EXPIRED';
+                if (isNotFound) {
+                    msg = 'Photo object was not found in secure storage.';
+                    errType = 'NOT_FOUND';
+                } else if (isDenied) {
+                    msg = 'Access to this private photo was denied by storage security policies.';
+                    errType = 'ACCESS_DENIED';
+                }
+                this.renderPhotoErrorUI(container, s.id, errType, msg, true);
+                return;
+            }
+
+            // Persist the durable storage path and fresh signed URL locally
+            if (typeof Store.updateWorkoutSessionPhoto === 'function') {
+                Store.updateWorkoutSessionPhoto(s.id, { photoPath, photoUrl: signedUrl });
             } else {
-                const container = document.getElementById('gymPhotoContainer');
-                if (container) {
-                    container.innerHTML = `
-                        <div style="text-align: center; padding: 24px;">
-                            <span style="font-size: 32px; display: block; margin-bottom: 8px;">🔒</span>
-                            <div style="font-weight: 700; color: #fff; font-size: 14px; margin-bottom: 4px;">PHOTO UNAVAILABLE</div>
-                            <div style="color: var(--text-muted); font-size: 12px; max-width: 340px;">Authentication required to view private gym check-in photo.</div>
-                        </div>
-                    `;
+                s.gym_photo_url = signedUrl;
+                s.gym_photo_path = photoPath;
+                if (s.gymPhoto) {
+                    s.gymPhoto.url = signedUrl;
+                    s.gymPhoto.storagePath = photoPath;
                 }
             }
+
+            // Render <img> with verified fresh signed URL and error fallback
+            container.innerHTML = `<img src="${signedUrl}" alt="Gym Check-In Photo" class="camera-preview-img" onerror="GymEngine.handlePhotoLoadError(this, '${s.id}', '${photoPath.replace(/'/g, "\\'")}')">`;
+        } catch (err) {
+            console.warn('[Gym] Error getting signed photo URL:', err);
+            this.renderPhotoErrorUI(container, s.id, 'ERROR', 'The photo could not be rendered or the temporary signed URL has expired.', true);
         }
     },
 
-    handlePhotoLoadError(imgEl, sessionId) {
+    handlePhotoLoadError(imgEl, sessionId, photoPath) {
         if (!imgEl) return;
-        const parent = imgEl.parentElement;
+        const parent = imgEl.parentElement || document.getElementById('gymPhotoContainer');
         if (!parent) return;
-        parent.innerHTML = `
+
+        if (!this._photoRetryMap) this._photoRetryMap = {};
+        const retries = this._photoRetryMap[sessionId] || 0;
+
+        // Limited automatic retry: if image fails on initial render, try ONCE with forceRefresh
+        if (retries < 1) {
+            this._photoRetryMap[sessionId] = retries + 1;
+            console.warn(`[Gym] Photo URL failed to load for session ${sessionId}. Attempting fresh signed URL regeneration...`);
+            if (photoPath && typeof SupabaseService !== 'undefined' && typeof SupabaseService.invalidateSignedGymPhotoUrl === 'function') {
+                SupabaseService.invalidateSignedGymPhotoUrl(photoPath);
+            }
+            this.viewSessionPhoto(sessionId, true, retries + 1);
+            return;
+        }
+
+        // If retry has already occurred, display clean error with manual refresh option
+        this.renderPhotoErrorUI(parent, sessionId, 'EXPIRED', 'The photo could not be rendered or the temporary signed URL has expired.', true);
+    },
+
+    renderPhotoErrorUI(container, sessionId, errorType, message, canRefresh = true) {
+        if (!container) return;
+        let icon = '📷';
+        let title = 'PHOTO UNAVAILABLE';
+        if (errorType === 'OFFLINE') { icon = '📡'; title = 'OFFLINE'; }
+        else if (errorType === 'AUTH_REQUIRED') { icon = '🔒'; title = 'PHOTO UNAVAILABLE'; }
+        else if (errorType === 'NOT_FOUND') { icon = '🔍'; title = 'PHOTO NOT FOUND'; }
+        else if (errorType === 'ACCESS_DENIED') { icon = '🛡️'; title = 'ACCESS DENIED'; }
+
+        container.innerHTML = `
             <div style="text-align: center; padding: 24px;">
-                <span style="font-size: 32px; display: block; margin-bottom: 8px;">📷</span>
-                <div style="font-weight: 700; color: #fff; font-size: 14px; margin-bottom: 4px;">PHOTO UNAVAILABLE</div>
-                <div style="color: var(--text-muted); font-size: 12px; max-width: 340px; margin-bottom: 12px;">The photo could not be rendered or the temporary signed URL has expired.</div>
-                <button class="action-btn-ghost" style="font-size: 12px; padding: 4px 12px;" onclick="GymEngine.viewSessionPhoto('${sessionId}')">Refresh Photo 🔄</button>
+                <span style="font-size: 32px; display: block; margin-bottom: 8px;">${icon}</span>
+                <div style="font-weight: 700; color: #fff; font-size: 14px; margin-bottom: 4px;">${title}</div>
+                <div style="color: var(--text-muted); font-size: 12px; max-width: 340px; margin-bottom: 12px;">${message}</div>
+                ${canRefresh ? `
+                    <button type="button" class="action-btn-ghost btn-gym-photo-refresh" style="font-size: 12px; padding: 6px 14px; width: auto; display: inline-flex; align-items: center; gap: 6px;" onclick="GymEngine.viewSessionPhoto('${sessionId}', true, 1)">
+                        Refresh Photo 🔄
+                    </button>
+                ` : ''}
             </div>
         `;
     },
