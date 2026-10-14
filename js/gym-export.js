@@ -477,37 +477,179 @@
         // ---------------------------------------------------------------------
         // Workout Photo Retrieval & Image Ingestion
         // ---------------------------------------------------------------------
-        async loadWorkoutPhoto(session) {
-            if (!session) return null;
-            const photoPath = session.gym_photo_path || session.gymPhoto?.storagePath;
-            let directUrl = session.gymPhoto?.url || session.gym_photo_url || session.gymPhoto?.base64;
+        async getImageDimensions(dataUrl) {
+            if (!dataUrl || typeof dataUrl !== 'string') return { width: 4, height: 3 };
 
-            // 1. Direct Base64 data URL
-            if (typeof directUrl === 'string' && directUrl.startsWith('data:image/')) {
-                return directUrl;
+            // In browser environment with Image constructor
+            if (typeof window !== 'undefined' && typeof window.Image !== 'undefined') {
+                try {
+                    const dims = await new Promise((resolve) => {
+                        const img = new window.Image();
+                        img.onload = () => {
+                            const w = img.naturalWidth || img.width || 4;
+                            const h = img.naturalHeight || img.height || 3;
+                            resolve({ width: w, height: h });
+                        };
+                        img.onerror = () => resolve(null);
+                        img.src = dataUrl;
+                    });
+                    if (dims) return dims;
+                } catch (_) {}
             }
 
-            // 2. Resolve signed URL via Supabase Storage if path exists
-            let signedUrl = directUrl;
-            if (!signedUrl && photoPath && typeof SupabaseService !== 'undefined' && SupabaseService.isAuthenticated()) {
+            // In Node.js or Buffer fallback
+            if (typeof Buffer !== 'undefined' && dataUrl.includes('base64,')) {
                 try {
-                    signedUrl = await SupabaseService.getSignedGymPhotoUrl(photoPath, 3600);
-                } catch (e) {
-                    console.warn('[GymExport] Error requesting signed URL for photo:', e);
+                    const base64Str = dataUrl.split('base64,')[1];
+                    const buf = Buffer.from(base64Str, 'base64');
+                    // PNG
+                    if (buf.length >= 24 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47) {
+                        return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) };
+                    }
+                    // JPEG
+                    if (buf.length >= 24 && buf[0] === 0xFF && buf[1] === 0xD8) {
+                        let offset = 2;
+                        while (offset < buf.length - 8) {
+                            if (buf[offset] !== 0xFF) { offset++; continue; }
+                            const marker = buf[offset + 1];
+                            if ((marker >= 0xC0 && marker <= 0xC3) || (marker >= 0xC5 && marker <= 0xC7) || (marker >= 0xC9 && marker <= 0xCB) || (marker >= 0xCD && marker <= 0xCF)) {
+                                const height = buf.readUInt16BE(offset + 5);
+                                const width = buf.readUInt16BE(offset + 7);
+                                return { width, height };
+                            }
+                            const length = buf.readUInt16BE(offset + 2);
+                            offset += 2 + length;
+                        }
+                    }
+                } catch (_) {}
+            }
+
+            return { width: 4, height: 3 };
+        },
+
+        // ---------------------------------------------------------------------
+        // Workout Photo Retrieval & Image Ingestion
+        // ---------------------------------------------------------------------
+        async loadWorkoutPhoto(session) {
+            if (!session) return { status: 'NO_PHOTO', message: 'No workout session' };
+
+            // 1. Direct Base64 data URL (offline captured or in-memory)
+            const directUrl = session.gymPhoto?.base64 ||
+                (typeof session.gymPhoto?.url === 'string' && session.gymPhoto.url.startsWith('data:image/') ? session.gymPhoto.url : null) ||
+                (typeof session.gym_photo_url === 'string' && session.gym_photo_url.startsWith('data:image/') ? session.gym_photo_url : null);
+
+            if (directUrl) {
+                const dims = await this.getImageDimensions(directUrl);
+                return {
+                    dataUrl: directUrl,
+                    width: dims.width,
+                    height: dims.height,
+                    status: 'VALID',
+                    message: 'Verified Gym Photo'
+                };
+            }
+
+            // 2. Resolve durable Storage object path using existing metadata
+            let photoPath = session.gym_photo_path || session.gymPhoto?.storagePath || null;
+            const existingUrl = session.gymPhoto?.url || session.gym_photo_url || null;
+
+            // Compatibility fallback: recover storage path if only legacy signed URL exists
+            if (!photoPath && existingUrl && typeof SupabaseService !== 'undefined' && typeof SupabaseService.normalizeGymPhotoPath === 'function') {
+                photoPath = SupabaseService.normalizeGymPhotoPath(existingUrl) || null;
+            }
+
+            // Fallback: If session had a check-in photo indicator but lost path, construct canonical convention candidate
+            if ((!photoPath || !photoPath.includes('/')) && (existingUrl || session.gymPhoto || session.gym_photo_id)) {
+                const currentUserId = (typeof SupabaseService !== 'undefined' && typeof SupabaseService.getUserId === 'function' ? SupabaseService.getUserId() : null) || session.userId || session.user_id;
+                if (currentUserId && session.id && session.date) {
+                    const parts = session.date.split('-');
+                    if (parts.length >= 2) {
+                        photoPath = `${currentUserId}/${parts[0]}/${parts[1]}/${session.id}.jpg`;
+                    }
                 }
             }
 
-            if (!signedUrl) return null;
+            // Check if genuinely no photo was ever recorded
+            if (!photoPath && !existingUrl && !session.gymPhoto && !session.gym_photo_id) {
+                return { status: 'NO_PHOTO', message: 'No check-in photo recorded' };
+            }
 
-            // 3. Ingest image data URL via fetch & FileReader / Buffer
+            // Normalize path
+            if (photoPath && typeof SupabaseService !== 'undefined' && typeof SupabaseService.normalizeGymPhotoPath === 'function') {
+                photoPath = SupabaseService.normalizeGymPhotoPath(photoPath);
+            }
+
+            // 3. Authenticated Supabase client and security checks
+            if (typeof SupabaseService === 'undefined' || !SupabaseService.isAuthenticated()) {
+                return { status: 'AUTH_REQUIRED', message: 'Authentication required for photo' };
+            }
+
+            const currentUserId = typeof SupabaseService.getUserId === 'function' ? SupabaseService.getUserId() : null;
+            if (photoPath && currentUserId) {
+                const pathOwner = photoPath.split('/')[0];
+                if (pathOwner !== currentUserId) {
+                    console.warn('[GymExport] Cross-user photo access blocked:', photoPath);
+                    return { status: 'ACCESS_DENIED', message: 'Access denied by security policies' };
+                }
+            }
+
+            // 4. Generate fresh signed URL through authenticated Supabase client (with historical recovery support)
+            let signedUrl = null;
             try {
+                if (typeof SupabaseService.getSignedGymPhotoUrlForSession === 'function') {
+                    signedUrl = await SupabaseService.getSignedGymPhotoUrlForSession(session, 3600, false);
+                } else if (photoPath && typeof SupabaseService.getSignedGymPhotoUrl === 'function') {
+                    signedUrl = await SupabaseService.getSignedGymPhotoUrl(photoPath, 3600, false, session);
+                }
+            } catch (err) {
+                console.warn('[GymExport] Error generating signed URL:', err);
+            }
+
+            if (!signedUrl) {
+                const lastErr = typeof SupabaseService.getLastStorageError === 'function' ? SupabaseService.getLastStorageError() : null;
+                const isNotFound = lastErr && (lastErr.code === 404 || lastErr.statusCode === 404 || lastErr.message?.toLowerCase().includes('not found') || lastErr.message?.includes('NoSuchKey'));
+                const isDenied = lastErr && (lastErr.code === 403 || lastErr.statusCode === 403 || lastErr.message?.toLowerCase().includes('unauthorized') || lastErr.message?.toLowerCase().includes('policy') || lastErr.message?.toLowerCase().includes('security'));
+
+                if (isNotFound) {
+                    return { status: 'NOT_FOUND', message: 'Photo not found in cloud storage' };
+                }
+                if (isDenied) {
+                    return { status: 'ACCESS_DENIED', message: 'Access denied by security policies' };
+                }
+                return { status: 'UNAVAILABLE', message: 'The photo could not be retrieved' };
+            }
+
+            // 5. Fetch the image and wait until it is fully loaded into a Data URL
+            try {
+                let dataUrl = null;
                 if (typeof fetch === 'function') {
-                    const resp = await fetch(signedUrl);
-                    if (!resp.ok) return null;
+                    let resp = await fetch(signedUrl);
+
+                    // If cached signed URL expired or failed with 400/401/403, retry once with forceRefresh
+                    if (!resp.ok && resp.status >= 400) {
+                        const targetPath = session.gym_photo_path || photoPath;
+                        if (targetPath && typeof SupabaseService.invalidateSignedGymPhotoUrl === 'function') {
+                            SupabaseService.invalidateSignedGymPhotoUrl(targetPath);
+                            if (typeof SupabaseService.getSignedGymPhotoUrlForSession === 'function') {
+                                signedUrl = await SupabaseService.getSignedGymPhotoUrlForSession(session, 3600, true);
+                            } else {
+                                signedUrl = await SupabaseService.getSignedGymPhotoUrl(targetPath, 3600, true, session);
+                            }
+                            if (signedUrl) {
+                                resp = await fetch(signedUrl);
+                            }
+                        }
+                    }
+
+                    if (!resp.ok) {
+                        if (resp.status === 404) return { status: 'NOT_FOUND', message: 'Photo not found in cloud storage' };
+                        if (resp.status === 403) return { status: 'ACCESS_DENIED', message: 'Access denied by security policies' };
+                        return { status: 'LOAD_ERROR', message: `Photo download failed (HTTP ${resp.status})` };
+                    }
 
                     if (typeof window !== 'undefined' && typeof FileReader !== 'undefined') {
                         const blob = await resp.blob();
-                        return await new Promise((resolve) => {
+                        dataUrl = await new Promise((resolve) => {
                             const reader = new FileReader();
                             reader.onloadend = () => resolve(reader.result);
                             reader.onerror = () => resolve(null);
@@ -516,14 +658,26 @@
                     } else if (typeof Buffer !== 'undefined') {
                         const arrayBuf = await resp.arrayBuffer();
                         const buf = Buffer.from(arrayBuf);
-                        const mime = resp.headers.get('content-type') || 'image/jpeg';
-                        return `data:${mime};base64,${buf.toString('base64')}`;
+                        const mime = resp.headers?.get ? (resp.headers.get('content-type') || 'image/jpeg') : 'image/jpeg';
+                        dataUrl = `data:${mime};base64,${buf.toString('base64')}`;
                     }
                 }
-            } catch (err) {
-                console.warn('[GymExport] Failed to convert photo URL to data URI:', err);
+
+                if (dataUrl) {
+                    const dims = await this.getImageDimensions(dataUrl);
+                    return {
+                        dataUrl,
+                        width: dims.width,
+                        height: dims.height,
+                        status: 'VALID',
+                        message: 'Verified Gym Photo'
+                    };
+                }
+            } catch (fetchErr) {
+                console.warn('[GymExport] Image fetch error:', fetchErr);
             }
-            return null;
+
+            return { status: 'UNAVAILABLE', message: 'The photo could not be downloaded' };
         },
 
         // ---------------------------------------------------------------------
@@ -561,11 +715,26 @@
                 roseAlert: [225, 29, 72]        // #e11d48
             };
 
-            const pageWidth = 210;
-            const pageHeight = 297;
-            const marginX = 14;
-            const contentWidth = pageWidth - (marginX * 2);
-            let cursorY = 16;
+            // Unified Page Layout & Printable Margins (A4 Portrait)
+            const LAYOUT = {
+                pageWidth: 210,
+                pageHeight: 297,
+                marginX: 14,
+                marginTop: 16,
+                marginBottom: 20,
+                contentWidth: 182, // 210 - (14 * 2) = 182mm
+                headerY: 10,
+                headerLineY: 12.5,
+                footerLineY: 285,
+                footerTextY: 289.5,
+                minBottomThreshold: 277 // pageHeight (297) - marginBottom (20) = 277mm
+            };
+
+            const pageWidth = LAYOUT.pageWidth;
+            const pageHeight = LAYOUT.pageHeight;
+            const marginX = LAYOUT.marginX;
+            const contentWidth = LAYOUT.contentWidth;
+            let cursorY = LAYOUT.marginTop;
 
             const formatMinutes = (mins) => {
                 const m = Math.max(0, Number(mins) || 0);
@@ -736,26 +905,36 @@
 
                 doc.autoTable({
                     startY: cursorY,
-                    margin: { left: marginX, right: marginX },
+                    margin: { left: marginX, right: marginX, top: LAYOUT.marginTop, bottom: LAYOUT.marginBottom },
                     head: [['Day', 'Date', 'Routine / Split', 'Duration', 'Sets', 'Volume', 'Status']],
                     body: calendarRows,
                     theme: 'grid',
+                    showHead: 'everyPage',
                     styles: {
                         font: 'helvetica',
-                        fontSize: 7.5,
+                        fontSize: 7.2,
                         textColor: COLOR.textPrimary,
-                        cellPadding: 2.2,
+                        cellPadding: 2,
                         lineColor: COLOR.borderLight,
-                        lineWidth: 0.2
+                        lineWidth: 0.15
                     },
                     headStyles: {
                         fillColor: COLOR.textPrimary,
                         textColor: [255, 255, 255],
                         fontStyle: 'bold',
-                        fontSize: 7.5
+                        fontSize: 7.2
                     },
                     alternateRowStyles: {
                         fillColor: COLOR.bgSurface
+                    },
+                    columnStyles: {
+                        0: { cellWidth: 20, halign: 'left' },
+                        1: { cellWidth: 22, halign: 'center' },
+                        2: { cellWidth: 48, halign: 'left' },
+                        3: { cellWidth: 20, halign: 'right' },
+                        4: { cellWidth: 18, halign: 'right' },
+                        5: { cellWidth: 26, halign: 'right' },
+                        6: { cellWidth: 28, halign: 'center' }
                     },
                     didParseCell: (data) => {
                         if (data.section === 'body' && data.column.index === 6) {
@@ -806,24 +985,32 @@
                 if (monthlyRows.length > 0) {
                     doc.autoTable({
                         startY: cursorY,
-                        margin: { left: marginX, right: marginX },
+                        margin: { left: marginX, right: marginX, top: LAYOUT.marginTop, bottom: LAYOUT.marginBottom },
                         head: [['Period', 'Frequency', 'Duration', 'Total Sets', 'Volume']],
                         body: monthlyRows,
                         theme: 'grid',
+                        showHead: 'everyPage',
                         styles: {
                             font: 'helvetica',
-                            fontSize: 7.5,
+                            fontSize: 7.2,
                             textColor: COLOR.textPrimary,
-                            cellPadding: 2.2,
+                            cellPadding: 2,
                             lineColor: COLOR.borderLight,
-                            lineWidth: 0.2
+                            lineWidth: 0.15
                         },
                         headStyles: {
                             fillColor: COLOR.textPrimary,
                             textColor: [255, 255, 255],
                             fontStyle: 'bold'
                         },
-                        alternateRowStyles: { fillColor: COLOR.bgSurface }
+                        alternateRowStyles: { fillColor: COLOR.bgSurface },
+                        columnStyles: {
+                            0: { cellWidth: 32, halign: 'left' },
+                            1: { cellWidth: 35, halign: 'center' },
+                            2: { cellWidth: 35, halign: 'right' },
+                            3: { cellWidth: 35, halign: 'right' },
+                            4: { cellWidth: 45, halign: 'right' }
+                        }
                     });
                     cursorY = doc.lastAutoTable.finalY + 8;
                 }
@@ -833,9 +1020,9 @@
             // 4. Personal Records (PR) Section
             // -----------------------------------------------------------------
             if (this.state.includePRs) {
-                if (cursorY > pageHeight - 50) {
+                if (cursorY > LAYOUT.minBottomThreshold - 40) {
                     doc.addPage();
-                    cursorY = 16;
+                    cursorY = LAYOUT.marginTop;
                 }
 
                 doc.setFont('helvetica', 'bold');
@@ -856,24 +1043,33 @@
 
                     doc.autoTable({
                         startY: cursorY,
-                        margin: { left: marginX, right: marginX },
+                        margin: { left: marginX, right: marginX, top: LAYOUT.marginTop, bottom: LAYOUT.marginBottom },
                         head: [['Exercise', 'New Record Weight', 'Reps', 'Date Achieved', 'Previous Best', 'Improvement']],
                         body: prRows,
                         theme: 'grid',
+                        showHead: 'everyPage',
                         styles: {
                             font: 'helvetica',
-                            fontSize: 7.5,
+                            fontSize: 7.2,
                             textColor: COLOR.textPrimary,
-                            cellPadding: 2.2,
+                            cellPadding: 2,
                             lineColor: COLOR.borderLight,
-                            lineWidth: 0.2
+                            lineWidth: 0.15
                         },
                         headStyles: {
                             fillColor: COLOR.amberDark,
                             textColor: [255, 255, 255],
                             fontStyle: 'bold'
                         },
-                        alternateRowStyles: { fillColor: COLOR.amberLight }
+                        alternateRowStyles: { fillColor: COLOR.amberLight },
+                        columnStyles: {
+                            0: { cellWidth: 48, halign: 'left' },
+                            1: { cellWidth: 28, halign: 'right' },
+                            2: { cellWidth: 22, halign: 'right' },
+                            3: { cellWidth: 26, halign: 'center' },
+                            4: { cellWidth: 28, halign: 'right' },
+                            5: { cellWidth: 30, halign: 'right' }
+                        }
                     });
                     cursorY = doc.lastAutoTable.finalY + 8;
                 } else {
@@ -892,9 +1088,9 @@
             // 5. Muscle Group Distribution (Analytics)
             // -----------------------------------------------------------------
             if (this.state.includeAnalytics && analytics.muscleDistribution.length > 0 && scopeData.reportType !== 'single') {
-                if (cursorY > pageHeight - 55) {
+                if (cursorY > LAYOUT.minBottomThreshold - 45) {
                     doc.addPage();
-                    cursorY = 16;
+                    cursorY = LAYOUT.marginTop;
                 }
 
                 doc.setFont('helvetica', 'bold');
@@ -917,24 +1113,32 @@
 
                 doc.autoTable({
                     startY: cursorY,
-                    margin: { left: marginX, right: marginX },
+                    margin: { left: marginX, right: marginX, top: LAYOUT.marginTop, bottom: LAYOUT.marginBottom },
                     head: [['Muscle Group', 'Movements Tracked', 'Total Sets', 'Volume (kg)', 'Share']],
                     body: distRows,
                     theme: 'grid',
+                    showHead: 'everyPage',
                     styles: {
                         font: 'helvetica',
-                        fontSize: 7.5,
+                        fontSize: 7.2,
                         textColor: COLOR.textPrimary,
                         cellPadding: 2,
                         lineColor: COLOR.borderLight,
-                        lineWidth: 0.2
+                        lineWidth: 0.15
                     },
                     headStyles: {
                         fillColor: COLOR.textSecondary,
                         textColor: [255, 255, 255],
                         fontStyle: 'bold'
                     },
-                    alternateRowStyles: { fillColor: COLOR.bgSurface }
+                    alternateRowStyles: { fillColor: COLOR.bgSurface },
+                    columnStyles: {
+                        0: { cellWidth: 44, halign: 'left' },
+                        1: { cellWidth: 34, halign: 'center' },
+                        2: { cellWidth: 30, halign: 'right' },
+                        3: { cellWidth: 38, halign: 'right' },
+                        4: { cellWidth: 36, halign: 'right' }
+                    }
                 });
                 cursorY = doc.lastAutoTable.finalY + 8;
             }
@@ -944,9 +1148,9 @@
             // -----------------------------------------------------------------
             if (scopeData.sessions.length === 0) {
                 // Empty state handling
-                if (cursorY > pageHeight - 40) {
+                if (cursorY > LAYOUT.minBottomThreshold - 35) {
                     doc.addPage();
-                    cursorY = 16;
+                    cursorY = LAYOUT.marginTop;
                 }
                 doc.setFillColor(...COLOR.bgSurface);
                 doc.setDrawColor(...COLOR.borderLight);
@@ -964,16 +1168,10 @@
                 // For weekly/monthly reports, start workout sessions on a fresh page for clean layout
                 if (scopeData.reportType !== 'single') {
                     doc.addPage();
-                    cursorY = 16;
+                    cursorY = LAYOUT.marginTop;
                 }
 
                 scopeData.sessions.forEach((session, sIdx) => {
-                    // Check if enough space remains on page for session card header + photo/summary
-                    if (cursorY > pageHeight - 75) {
-                        doc.addPage();
-                        cursorY = 16;
-                    }
-
                     const workoutType = (session.workoutType || session.routineName || '').toString().trim() || 'Workout type not recorded';
                     const sessionDate = session.date || 'Date not recorded';
                     const weekday = session.dayOfWeek || '';
@@ -982,111 +1180,200 @@
                     const sessionSets = session.setCount || session.totalSets || 0;
                     const sessionExCount = session.exercises?.length || session.exerciseCount || 0;
 
-                    // Session Card Header Box
+                    // 1. Calculate dynamic height for workout routine title to prevent overflow/clipping
+                    doc.setFont('helvetica', 'bold');
+                    doc.setFontSize(10.5);
+                    const titleAvailableWidth = contentWidth - 10;
+                    const titleLines = doc.splitTextToSize(workoutType, titleAvailableWidth);
+                    const titleBlockH = Math.max(5.5, titleLines.length * 4.5);
+
+                    // Dynamic Header Card Height (Top row: 6mm + Title: titleBlockH + Badges: 10mm + padding)
+                    const metricBadgesH = 10;
+                    const headerCardH = 7 + titleBlockH + 2.5 + metricBadgesH + 4; // typically 29mm to 34mm
+
+                    // Section 3 Two-column photo & session details dimensions
+                    const photoBoxW = 56;
+                    const photoBoxH = 42;
+                    const summaryBlockTotalH = headerCardH + 5 + photoBoxH + 6;
+
+                    // Keep entire workout summary block together (Header + Photo/Info panel)
+                    if (cursorY + summaryBlockTotalH > LAYOUT.minBottomThreshold) {
+                        doc.addPage();
+                        cursorY = LAYOUT.marginTop;
+                    }
+
+                    // Render Session Card Header Box
                     doc.setFillColor(...COLOR.bgSurfaceAlt);
                     doc.setDrawColor(...COLOR.borderMedium);
                     doc.setLineWidth(0.3);
-                    doc.roundedRect(marginX, cursorY, contentWidth, 14, 1.5, 1.5, 'FD');
+                    doc.roundedRect(marginX, cursorY, contentWidth, headerCardH, 1.5, 1.5, 'FD');
 
-                    // Date & Weekday Pill
+                    // Left accent notch (amber)
+                    doc.setFillColor(...COLOR.amberAccent);
+                    doc.rect(marginX, cursorY + 2, 1.5, headerCardH - 4, 'F');
+
+                    // Top Row: Date Pill & Status Badge
                     doc.setFont('helvetica', 'bold');
-                    doc.setFontSize(8.5);
+                    doc.setFontSize(8);
                     doc.setTextColor(...COLOR.textPrimary);
-                    doc.text(`${weekday ? weekday.toUpperCase() + '  •  ' : ''}${sessionDate}`, marginX + 4, cursorY + 5.5);
+                    const dateLabel = `${weekday ? weekday.toUpperCase() + '  •  ' : ''}${sessionDate}`;
+                    doc.text(dateLabel, marginX + 5, cursorY + 5.5);
 
-                    // Workout Routine Title
-                    doc.setFont('helvetica', 'bold');
-                    doc.setFontSize(11);
-                    doc.setTextColor(...COLOR.amberAccent);
-                    doc.text(workoutType, marginX + 4, cursorY + 10.5);
-
-                    // Session Meta Summary on Right
-                    doc.setFont('helvetica', 'normal');
                     doc.setFontSize(7.5);
-                    doc.setTextColor(...COLOR.textSecondary);
-                    const metaStr = `⏱ ${formatMinutes(durationMins)}   |   📊 ${sessionSets} Sets   |   🏋️ ${sessionExCount} Exercises   |   📈 ${sessionVol} kg`;
-                    doc.text(metaStr, pageWidth - marginX - 4, cursorY + 8.5, { align: 'right' });
+                    doc.setTextColor(...COLOR.amberDark);
+                    doc.text('[ VERIFIED WORKOUT SESSION ]', pageWidth - marginX - 5, cursorY + 5.5, { align: 'right' });
 
-                    cursorY += 18;
+                    // Middle Row: Workout Routine Title (wrapped cleanly)
+                    doc.setFont('helvetica', 'bold');
+                    doc.setFontSize(10.5);
+                    doc.setTextColor(...COLOR.textPrimary);
+                    for (let tlIdx = 0; tlIdx < titleLines.length; tlIdx++) {
+                        doc.text(titleLines[tlIdx], marginX + 5, cursorY + 11.5 + (tlIdx * 4.5));
+                    }
+
+                    // Bottom Row: 4 Structured Metric Badges (Duration, Sets, Exercises, Volume)
+                    const metricY = cursorY + 11.5 + (titleLines.length * 4.5) + 1.5;
+                    const badgeGap = 3;
+                    const badgeW = (contentWidth - 10 - (3 * badgeGap)) / 4;
+                    const badges = [
+                        { label: 'DURATION', val: formatMinutes(durationMins) },
+                        { label: 'TOTAL SETS', val: `${sessionSets} Sets` },
+                        { label: 'EXERCISES', val: `${sessionExCount} Movements` },
+                        { label: 'VOLUME', val: `${sessionVol} kg` }
+                    ];
+
+                    badges.forEach((b, bIdx) => {
+                        const bx = marginX + 5 + (bIdx * (badgeW + badgeGap));
+                        doc.setFillColor(...COLOR.bgWhite);
+                        doc.setDrawColor(...COLOR.borderLight);
+                        doc.setLineWidth(0.2);
+                        doc.roundedRect(bx, metricY, badgeW, metricBadgesH, 1, 1, 'FD');
+
+                        doc.setFont('helvetica', 'bold');
+                        doc.setFontSize(5.8);
+                        doc.setTextColor(...COLOR.textMuted);
+                        doc.text(b.label, bx + 3, metricY + 3.8);
+
+                        doc.setFont('helvetica', 'bold');
+                        doc.setFontSize(7.8);
+                        doc.setTextColor(...COLOR.textPrimary);
+                        doc.text(b.val, bx + 3, metricY + 8.2);
+                    });
+
+                    cursorY += headerCardH + 5;
 
                     // ---------------------------------------------------------
-                    // Workout Photo Section (Prominent & Aspect-Preserved)
+                    // Workout Photo & Session Details (Balanced Two-Column Layout)
                     // ---------------------------------------------------------
                     if (this.state.includePhotos) {
-                        const photoDataUrl = photoMap[session.id];
-                        const photoBoxW = 54;
-                        const photoBoxH = 40;
+                        const photoEntry = photoMap[session.id];
                         const photoX = marginX;
                         const photoY = cursorY;
 
+                        let photoDataUrl = null;
+                        let photoW = 4, photoH = 3;
+                        let photoReason = 'No check-in photo recorded';
+
+                        if (typeof photoEntry === 'string') {
+                            photoDataUrl = photoEntry;
+                        } else if (photoEntry && typeof photoEntry === 'object') {
+                            photoDataUrl = photoEntry.dataUrl || null;
+                            if (photoEntry.width) photoW = photoEntry.width;
+                            if (photoEntry.height) photoH = photoEntry.height;
+                            if (photoEntry.message) photoReason = photoEntry.message;
+                        }
+
+                        // Column 1 (Left): Photo Box (56mm x 42mm)
                         if (photoDataUrl) {
                             try {
                                 doc.setFillColor(...COLOR.bgSurface);
                                 doc.setDrawColor(...COLOR.borderLight);
+                                doc.setLineWidth(0.3);
                                 doc.roundedRect(photoX, photoY, photoBoxW, photoBoxH, 1.5, 1.5, 'FD');
 
-                                // Compute image aspect ratio if possible or fit neatly
-                                let renderW = photoBoxW - 2;
-                                let renderH = photoBoxH - 2;
-                                let renderX = photoX + 1;
-                                let renderY = photoY + 1;
+                                // Compute image aspect ratio to preserve proportions without distortion
+                                const maxW = photoBoxW - 3;
+                                const maxH = photoBoxH - 3;
+                                const imgAspect = (photoW > 0 && photoH > 0) ? (photoW / photoH) : (4 / 3);
+                                const boxAspect = maxW / maxH;
 
-                                doc.addImage(photoDataUrl, 'JPEG', renderX, renderY, renderW, renderH, undefined, 'FAST');
+                                let renderW, renderH;
+                                if (imgAspect > boxAspect) {
+                                    renderW = maxW;
+                                    renderH = maxW / imgAspect;
+                                } else {
+                                    renderH = maxH;
+                                    renderW = maxH * imgAspect;
+                                }
+                                const renderX = photoX + 1.5 + (maxW - renderW) / 2;
+                                const renderY = photoY + 1.5 + (maxH - renderH) / 2;
+
+                                const format = photoDataUrl.startsWith('data:image/png') ? 'PNG' : 'JPEG';
+                                doc.addImage(photoDataUrl, format, renderX, renderY, renderW, renderH, undefined, 'FAST');
 
                                 // Photo Border Frame
                                 doc.setDrawColor(...COLOR.amberAccent);
-                                doc.setLineWidth(0.4);
+                                doc.setLineWidth(0.35);
                                 doc.roundedRect(photoX, photoY, photoBoxW, photoBoxH, 1.5, 1.5, 'D');
 
                                 // Small verified badge
                                 doc.setFillColor(...COLOR.textPrimary);
-                                doc.roundedRect(photoX + 2, photoY + photoBoxH - 6, 26, 4.5, 1, 1, 'F');
+                                doc.roundedRect(photoX + 2, photoY + photoBoxH - 6.5, 32, 4.5, 1, 1, 'F');
                                 doc.setFont('helvetica', 'bold');
                                 doc.setFontSize(5.5);
                                 doc.setTextColor(255, 255, 255);
-                                doc.text('✓ GYM CHECK-IN PHOTO', photoX + 4, photoY + photoBoxH - 3);
+                                doc.text('[ VERIFIED CHECK-IN ]', photoX + 3.5, photoY + photoBoxH - 3.4);
                             } catch (imgErr) {
                                 console.warn('[GymExport] Failed to embed image in PDF:', imgErr);
-                                this.drawPhotoPlaceholder(doc, photoX, photoY, photoBoxW, photoBoxH, COLOR);
+                                this.drawPhotoPlaceholder(doc, photoX, photoY, photoBoxW, photoBoxH, COLOR, 'Failed to embed photo data');
                             }
                         } else {
-                            this.drawPhotoPlaceholder(doc, photoX, photoY, photoBoxW, photoBoxH, COLOR);
+                            this.drawPhotoPlaceholder(doc, photoX, photoY, photoBoxW, photoBoxH, COLOR, photoReason);
                         }
 
-                        // Right side of photo: Session Notes or Key Details
-                        const notesX = photoX + photoBoxW + 6;
-                        const notesW = contentWidth - photoBoxW - 6;
+                        // Column 2 (Right): Session Details Panel (121mm x 42mm)
+                        const notesX = photoX + photoBoxW + 5;
+                        const notesW = contentWidth - photoBoxW - 5;
 
                         doc.setFillColor(...COLOR.bgSurface);
                         doc.setDrawColor(...COLOR.borderLight);
+                        doc.setLineWidth(0.3);
                         doc.roundedRect(notesX, photoY, notesW, photoBoxH, 1.5, 1.5, 'FD');
 
+                        // Panel Header
                         doc.setFont('helvetica', 'bold');
                         doc.setFontSize(8);
                         doc.setTextColor(...COLOR.textPrimary);
-                        doc.text('SESSION LOG & VERIFICATION', notesX + 4, photoY + 6);
+                        doc.text('SESSION LOG & VERIFICATION', notesX + 5, photoY + 6);
 
                         doc.setFont('helvetica', 'normal');
                         doc.setFontSize(7);
                         doc.setTextColor(...COLOR.textSecondary);
-                        doc.text(`• Status: Authenticated Completed Session`, notesX + 4, photoY + 12);
-                        doc.text(`• Duration: ${formatMinutes(durationMins)} (${durationMins} minutes)`, notesX + 4, photoY + 17);
-                        doc.text(`• Training Volume: ${sessionVol} kg across ${sessionSets} sets`, notesX + 4, photoY + 22);
+                        doc.text(`* Status: Authenticated Completed Session`, notesX + 5, photoY + 12);
+                        doc.text(`* Duration: ${formatMinutes(durationMins)} (${durationMins} minutes active)`, notesX + 5, photoY + 17);
+                        doc.text(`* Training Volume: ${sessionVol} kg across ${sessionSets} completed sets`, notesX + 5, photoY + 22);
 
                         if (session.startedAt && session.endedAt) {
                             try {
                                 const stTime = new Date(session.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
                                 const enTime = new Date(session.endedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                                doc.text(`• Time Recorded: ${stTime} – ${enTime}`, notesX + 4, photoY + 27);
-                            } catch (e) {}
+                                doc.text(`* Time Recorded: ${stTime} - ${enTime} (${sessionDate})`, notesX + 5, photoY + 27);
+                            } catch (e) {
+                                doc.text(`* Recorded Date: ${sessionDate} (${weekday})`, notesX + 5, photoY + 27);
+                            }
                         } else {
-                            doc.text(`• Recorded Date: ${sessionDate} (${weekday})`, notesX + 4, photoY + 27);
+                            doc.text(`* Recorded Date: ${sessionDate} (${weekday})`, notesX + 5, photoY + 27);
                         }
 
                         if (session.notes) {
-                            doc.text(`• Notes: "${session.notes.slice(0, 60)}"`, notesX + 4, photoY + 32);
+                            const noteLines = doc.splitTextToSize(`* Notes: "${session.notes}"`, notesW - 10);
+                            doc.text(noteLines[0], notesX + 5, photoY + 32);
+                            if (noteLines.length > 1) {
+                                doc.text(noteLines[1], notesX + 5, photoY + 36.5);
+                            }
                         } else {
-                            doc.text(`• Check-In: Authenticated via private storage bucket`, notesX + 4, photoY + 32);
+                            doc.text(`* Verification: Authenticated via private Supabase storage bucket`, notesX + 5, photoY + 32);
+                            doc.text(`* Data Integrity: Relational session, exercise, and set records preserved`, notesX + 5, photoY + 36.5);
                         }
 
                         cursorY += photoBoxH + 6;
@@ -1105,19 +1392,54 @@
                         cursorY += 8;
                     } else if (this.state.includeExercises) {
                         exercises.forEach((ex, exIdx) => {
-                            if (cursorY > pageHeight - 35) {
-                                doc.addPage();
-                                cursorY = 16;
-                            }
-
                             const exName = (ex.name || 'Unnamed Exercise').trim();
-                            const mGroup = ex.muscleGroup ? ` (${ex.muscleGroup})` : '';
+                            const mGroup = (ex.muscleGroup || '').trim();
 
+                            // Calculate exercise heading height for long exercise names
                             doc.setFont('helvetica', 'bold');
                             doc.setFontSize(8.5);
+                            const nameAvailableW = contentWidth - 48;
+                            const exNameLines = doc.splitTextToSize(exName, nameAvailableW);
+                            const exHeadingH = Math.max(7.5, 3.5 + (exNameLines.length * 4));
+
+                            // Keep exercise heading together with at least its first set row (~14mm table header + 1 row)
+                            const neededForExercise = exHeadingH + 16;
+                            if (cursorY + neededForExercise > LAYOUT.minBottomThreshold) {
+                                doc.addPage();
+                                cursorY = LAYOUT.marginTop;
+                            }
+
+                            // Exercise Header Bar
+                            doc.setFillColor(...COLOR.bgSurfaceAlt);
+                            doc.setDrawColor(...COLOR.borderLight);
+                            doc.setLineWidth(0.2);
+                            doc.roundedRect(marginX, cursorY, contentWidth, exHeadingH, 1, 1, 'FD');
+
+                            // Exercise Index Badge
+                            doc.setFillColor(...COLOR.textPrimary);
+                            doc.roundedRect(marginX + 2, cursorY + 1.5, 20, exHeadingH - 3, 0.8, 0.8, 'F');
+                            doc.setFont('helvetica', 'bold');
+                            doc.setFontSize(6.5);
+                            doc.setTextColor(255, 255, 255);
+                            doc.text(`EXERCISE ${exIdx + 1}`, marginX + 3.2, cursorY + (exHeadingH / 2) + 1.8);
+
+                            // Exercise Name (wrapped if long)
+                            doc.setFont('helvetica', 'bold');
+                            doc.setFontSize(8.2);
                             doc.setTextColor(...COLOR.textPrimary);
-                            doc.text(`Exercise ${exIdx + 1}: ${exName}${mGroup}`, marginX, cursorY);
-                            cursorY += 3;
+                            for (let enl = 0; enl < exNameLines.length; enl++) {
+                                doc.text(exNameLines[enl], marginX + 25, cursorY + 4.5 + (enl * 4));
+                            }
+
+                            // Muscle Group Tag
+                            if (mGroup) {
+                                doc.setFont('helvetica', 'bold');
+                                doc.setFontSize(7);
+                                doc.setTextColor(...COLOR.amberDark);
+                                doc.text(`[ ${mGroup.toUpperCase()} ]`, pageWidth - marginX - 4, cursorY + (exHeadingH / 2) + 1.8, { align: 'right' });
+                            }
+
+                            cursorY += exHeadingH + 2;
 
                             const sets = Array.isArray(ex.sets) ? ex.sets : [];
                             if (sets.length === 0) {
@@ -1136,15 +1458,17 @@
                                     const wtStr = wt > 0 ? `${wt} kg` : 'Bodyweight';
 
                                     let notes = st.completed === false ? 'Incomplete' : 'Completed';
-                                    if (st.isWeightPr) notes += '  [↑ WEIGHT PR]';
-                                    if (st.isRepPr) notes += '  [↑ REP PR]';
+                                    if (st.isWeightPr && st.isRepPr) notes += '  [WEIGHT & REP PR]';
+                                    else if (st.isWeightPr) notes += '  [WEIGHT PR]';
+                                    else if (st.isRepPr) notes += '  [REP PR]';
+                                    if (st.notes) notes += ` (${st.notes})`;
 
                                     return [`Set ${setNum}`, wtStr, `${rp} reps`, rpe, setVol, notes];
                                 });
 
                                 doc.autoTable({
                                     startY: cursorY,
-                                    margin: { left: marginX, right: marginX },
+                                    margin: { left: marginX, right: marginX, top: LAYOUT.marginTop, bottom: LAYOUT.marginBottom },
                                     head: [['Set', 'Weight', 'Reps', 'RPE', 'Set Volume', 'Status / Notes']],
                                     body: setRows,
                                     theme: 'grid',
@@ -1155,32 +1479,33 @@
                                         textColor: COLOR.textPrimary,
                                         cellPadding: 1.8,
                                         lineColor: COLOR.borderLight,
-                                        lineWidth: 0.2
+                                        lineWidth: 0.15
                                     },
                                     headStyles: {
                                         fillColor: COLOR.bgSurfaceAlt,
                                         textColor: COLOR.textPrimary,
                                         fontStyle: 'bold',
-                                        fontSize: 7
+                                        fontSize: 7.2
                                     },
                                     alternateRowStyles: {
                                         fillColor: COLOR.bgSurface
                                     },
                                     columnStyles: {
-                                        0: { cellWidth: 16 },
-                                        1: { cellWidth: 26 },
-                                        2: { cellWidth: 24 },
-                                        3: { cellWidth: 16 },
-                                        4: { cellWidth: 26 },
-                                        5: { cellWidth: 'auto' }
+                                        0: { cellWidth: 16, halign: 'center' },
+                                        1: { cellWidth: 28, halign: 'right' },
+                                        2: { cellWidth: 22, halign: 'right' },
+                                        3: { cellWidth: 16, halign: 'center' },
+                                        4: { cellWidth: 28, halign: 'right' },
+                                        5: { cellWidth: 72, halign: 'left' }
                                     },
                                     didParseCell: (data) => {
                                         if (data.section === 'body' && data.column.index === 5) {
                                             if (data.cell.raw.includes('PR')) {
                                                 data.cell.styles.textColor = COLOR.amberDark;
                                                 data.cell.styles.fontStyle = 'bold';
-                                            } else if (data.cell.raw === 'Incomplete') {
+                                            } else if (data.cell.raw.startsWith('Incomplete')) {
                                                 data.cell.styles.textColor = COLOR.roseAlert;
+                                                data.cell.styles.fontStyle = 'bold';
                                             }
                                         }
                                     }
@@ -1203,58 +1528,74 @@
             }
 
             // -----------------------------------------------------------------
-            // 7. Two-Pass Running Headers & Footers
+            // 7. Dedicated Two-Pass Running Headers & Footers (No Overlap)
             // -----------------------------------------------------------------
             const totalPages = doc.getNumberOfPages();
-            const nowStamp = new Date().toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
+            const genTimestamp = new Date().toLocaleDateString('en-US', {
+                year: 'numeric',
+                month: 'short',
+                day: 'numeric'
+            }) + ', ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
             for (let p = 1; p <= totalPages; p++) {
                 doc.setPage(p);
 
                 // Running Header (pages > 1)
                 if (p > 1) {
-                    doc.setFont('helvetica', 'normal');
+                    doc.setFont('helvetica', 'bold');
                     doc.setFontSize(7);
                     doc.setTextColor(...COLOR.textMuted);
-                    doc.text(`FORGE FITNESS REPORT  //  ${scopeData.label}`, marginX, 10);
+                    doc.text(`FORGE FITNESS REPORT  //  ${scopeData.label}`, LAYOUT.marginX, LAYOUT.headerY);
                     doc.setDrawColor(...COLOR.borderLight);
                     doc.setLineWidth(0.2);
-                    doc.line(marginX, 12, pageWidth - marginX, 12);
+                    doc.line(LAYOUT.marginX, LAYOUT.headerLineY, LAYOUT.pageWidth - LAYOUT.marginX, LAYOUT.headerLineY);
                 }
 
-                // Running Footer (every page)
+                // Dedicated Running Footer (every page, strictly non-overlapping)
                 doc.setDrawColor(...COLOR.borderLight);
                 doc.setLineWidth(0.2);
-                doc.line(marginX, pageHeight - 12, pageWidth - marginX, pageHeight - 12);
+                doc.line(LAYOUT.marginX, LAYOUT.footerLineY, LAYOUT.pageWidth - LAYOUT.marginX, LAYOUT.footerLineY);
 
                 doc.setFont('helvetica', 'normal');
-                doc.setFontSize(6.8);
+                doc.setFontSize(6.5);
                 doc.setTextColor(...COLOR.textMuted);
-                doc.text('CONFIDENTIAL & PERSONAL TRAINING RECORD  •  FORGE FITNESS SYSTEM', marginX, pageHeight - 8);
-                doc.text(`Generated: ${nowStamp}`, pageWidth / 2, pageHeight - 8, { align: 'center' });
-                doc.text(`Page ${p} of ${totalPages}`, pageWidth - marginX, pageHeight - 8, { align: 'right' });
+
+                // Left Container: Confidentiality notice
+                doc.text('CONFIDENTIAL & PERSONAL TRAINING RECORD  •  FORGE FITNESS', LAYOUT.marginX, LAYOUT.footerTextY, { align: 'left' });
+
+                // Right Container: Generated timestamp and current/total page numbers
+                const rightFooterText = `Generated: ${genTimestamp}  •  Page ${p} of ${totalPages}`;
+                doc.text(rightFooterText, LAYOUT.pageWidth - LAYOUT.marginX, LAYOUT.footerTextY, { align: 'right' });
             }
 
             return doc;
         },
 
-        // Helper: Draw tasteful placeholder when photo is missing/failed
-        drawPhotoPlaceholder(doc, x, y, w, h, COLOR) {
+        // Helper: Draw tasteful placeholder when photo is missing/failed (Clean vector frame & text)
+        drawPhotoPlaceholder(doc, x, y, w, h, COLOR, reason = 'No check-in photo recorded') {
             doc.setFillColor(...COLOR.bgSurface);
             doc.setDrawColor(...COLOR.borderLight);
+            doc.setLineWidth(0.3);
             doc.roundedRect(x, y, w, h, 1.5, 1.5, 'FD');
 
-            doc.setFont('helvetica', 'bold');
-            doc.setFontSize(7.5);
-            doc.setTextColor(...COLOR.textMuted);
-            doc.text('📷', x + (w / 2), y + 16, { align: 'center' });
+            // Subtle camera outline vector icon (clean vector primitives, no broken emojis)
+            const iconX = x + (w / 2) - 6;
+            const iconY = y + 12;
+            doc.setDrawColor(...COLOR.textMuted);
+            doc.setLineWidth(0.4);
+            doc.roundedRect(iconX, iconY, 12, 8, 1, 1, 'D');
+            doc.circle(iconX + 6, iconY + 4, 2.2, 'D');
+            doc.rect(iconX + 2, iconY - 1.2, 3, 1.2, 'F');
 
+            doc.setFont('helvetica', 'bold');
             doc.setFontSize(6.8);
-            doc.text('WORKOUT PHOTO UNAVAILABLE', x + (w / 2), y + 23, { align: 'center' });
+            doc.setTextColor(...COLOR.textMuted);
+            doc.text('WORKOUT PHOTO UNAVAILABLE', x + (w / 2), y + 25, { align: 'center' });
 
             doc.setFont('helvetica', 'normal');
             doc.setFontSize(5.8);
-            doc.text('No check-in photo recorded', x + (w / 2), y + 28, { align: 'center' });
+            const cleanReason = String(reason || 'No check-in photo recorded').slice(0, 36);
+            doc.text(cleanReason, x + (w / 2), y + 30, { align: 'center' });
         },
 
         // ---------------------------------------------------------------------

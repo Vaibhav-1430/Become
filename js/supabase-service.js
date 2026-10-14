@@ -1467,10 +1467,130 @@ const SupabaseService = {
         }
     },
 
-    async getSignedGymPhotoUrl(objectPath, expiresIn = 3600, forceRefresh = false) {
+    async recoverGymPhotoPath(session) {
+        if (!session || !this.client) return null;
+        const currentUserId = this.getUserId();
+        if (!currentUserId) return null;
+
+        // Session must belong to current user
+        const sessUserId = session.userId || session.user_id;
+        if (sessUserId && sessUserId !== currentUserId) {
+            console.warn('[SupabaseService] Refusing photo recovery for session belonging to another user.');
+            return null;
+        }
+
+        const dateStr = session.date;
+        if (!dateStr || !dateStr.includes('-')) return null;
+
+        const parts = dateStr.split('-');
+        if (parts.length < 2) return null;
+        const year = parts[0];
+        const month = parts[1];
+        const folder = `${currentUserId}/${year}/${month}`;
+
+        try {
+            // 1. List objects in the user's specific year/month folder
+            const storageBucket = this.client.storage?.from ? this.client.storage.from('gym-photos') : null;
+            if (!storageBucket || typeof storageBucket.list !== 'function') {
+                return null;
+            }
+
+            const { data: files, error } = await storageBucket.list(folder, { limit: 100 });
+
+            if (error || !files || files.length === 0) {
+                return null;
+            }
+
+            // 2. Check for exact session ID match: {sessionId}.jpg
+            const canonicalName = `${session.id}.jpg`;
+            const exactMatch = files.find(f => f.name === canonicalName);
+            if (exactMatch) {
+                return `${folder}/${canonicalName}`;
+            }
+
+            // 3. Extract recorded timestamp from metadata if available
+            let recordedTs = null;
+            const rawPath = session.gym_photo_path || session.gymPhoto?.storagePath;
+            if (rawPath && rawPath.includes('sess_')) {
+                const m = rawPath.match(/sess_(\d+)\.jpg/);
+                if (m) recordedTs = parseInt(m[1], 10);
+            }
+            if (!recordedTs && session.startedAt) {
+                const parsed = new Date(session.startedAt).getTime();
+                if (!isNaN(parsed)) recordedTs = parsed;
+            }
+            if (!recordedTs && session.completedAt) {
+                const parsed = new Date(session.completedAt).getTime();
+                if (!isNaN(parsed)) recordedTs = parsed;
+            }
+
+            // 4. Look for files with sess_<timestamp>.jpg matching session date
+            const candidates = [];
+            for (const file of files) {
+                if (!file.name || !file.name.endsWith('.jpg')) continue;
+                if (!file.name.startsWith('sess_')) continue;
+                const m = file.name.match(/sess_(\d+)\.jpg/);
+                if (!m) continue;
+                const fileTs = parseInt(m[1], 10);
+                if (isNaN(fileTs)) continue;
+
+                // Check calendar date of file timestamp in UTC
+                const fileDate = new Date(fileTs).toISOString().split('T')[0];
+                if (fileDate === dateStr) {
+                    const diff = recordedTs ? Math.abs(fileTs - recordedTs) : 0;
+                    candidates.push({ name: file.name, diff, fileTs });
+                }
+            }
+
+            if (candidates.length === 0) return null;
+
+            // Pick closest candidate
+            candidates.sort((a, b) => a.diff - b.diff);
+
+            // Safety rule: if recorded timestamp is known, don't match something hours away (> 2 hours)
+            if (recordedTs && candidates[0].diff > 7200000) {
+                return null;
+            }
+
+            return `${folder}/${candidates[0].name}`;
+        } catch (e) {
+            console.warn('[SupabaseService] recoverGymPhotoPath exception:', e);
+            return null;
+        }
+    },
+
+    async getSignedGymPhotoUrlForSession(session, expiresIn = 3600, forceRefresh = false) {
+        if (!session) return null;
+        let photoPath = session.gym_photo_path || session.gymPhoto?.storagePath;
+        const existingUrl = session.gymPhoto?.url || session.gym_photo_url;
+
+        if (!photoPath && existingUrl) {
+            photoPath = this.normalizeGymPhotoPath(existingUrl);
+        }
+
+        if ((!photoPath || !photoPath.includes('/')) && (existingUrl || session.gymPhoto || session.gym_photo_id)) {
+            const currentUserId = this.getUserId() || session.userId || session.user_id;
+            if (currentUserId && session.id && session.date) {
+                const parts = session.date.split('-');
+                if (parts.length >= 2) {
+                    photoPath = `${currentUserId}/${parts[0]}/${parts[1]}/${session.id}.jpg`;
+                }
+            }
+        }
+
+        if (!photoPath) {
+            photoPath = await this.recoverGymPhotoPath(session);
+        }
+
+        if (!photoPath) return null;
+
+        return await this.getSignedGymPhotoUrl(photoPath, expiresIn, forceRefresh, session);
+    },
+
+    async getSignedGymPhotoUrl(objectPath, expiresIn = 3600, forceRefresh = false, sessionContext = null) {
         if (!this.client || !objectPath) return null;
         try {
-            const cleanPath = this.normalizeGymPhotoPath(objectPath);
+            let cleanPath = this.normalizeGymPhotoPath(objectPath);
             if (!cleanPath) return null;
 
             // Security check: validate the authenticated Supabase user owns this path
@@ -1503,15 +1623,61 @@ const SupabaseService = {
 
             const requestPromise = (async () => {
                 try {
-                    const { data, error } = await this.client
+                    let { data, error } = await this.client
                         .storage
                         .from('gym-photos')
                         .createSignedUrl(cleanPath, expiresIn);
 
+                    // If 404 / NoSuchKey and sessionContext provided, attempt safe historical recovery
+                    const isNotFound = error && (error.status === 404 || error.statusCode === 404 || error.message?.toLowerCase().includes('not found') || error.message?.includes('NoSuchKey'));
+                    if (isNotFound && sessionContext && typeof this.recoverGymPhotoPath === 'function') {
+                        console.info('[SupabaseService] Photo not found at path, attempting safe historical recovery for session:', sessionContext.id);
+                        const recoveredPath = await this.recoverGymPhotoPath(sessionContext);
+                        if (recoveredPath && recoveredPath !== cleanPath) {
+                            console.info('[SupabaseService] Historical photo recovered at path:', recoveredPath);
+                            const recRes = await this.client
+                                .storage
+                                .from('gym-photos')
+                                .createSignedUrl(recoveredPath, expiresIn);
+
+                            if (recRes && recRes.data?.signedUrl) {
+                                data = recRes.data;
+                                error = null;
+                                // Update session in Store and sessionContext
+                                sessionContext.gym_photo_path = recoveredPath;
+                                if (sessionContext.gymPhoto) {
+                                    sessionContext.gymPhoto.storagePath = recoveredPath;
+                                    sessionContext.gymPhoto.url = data.signedUrl;
+                                }
+                                if (typeof Store !== 'undefined' && typeof Store.updateWorkoutSessionPhoto === 'function') {
+                                    try {
+                                        Store.updateWorkoutSessionPhoto(sessionContext.id, { photoPath: recoveredPath, photoUrl: data.signedUrl });
+                                    } catch (_) {}
+                                }
+                                if (this.client && currentUserId && sessionContext.id) {
+                                    try {
+                                        this.client
+                                            .from('workout_sessions')
+                                            .update({ gym_photo_path: recoveredPath, updated_at: new Date().toISOString() })
+                                            .eq('id', sessionContext.id)
+                                            .eq('user_id', currentUserId)
+                                            .then(() => {})
+                                            .catch(() => {});
+                                    } catch (_) {}
+                                }
+                                this._signedUrlCache.set(`${currentUserId}:${recoveredPath}`, {
+                                    signedUrl: recRes.data.signedUrl,
+                                    expiresAt: Date.now() + (expiresIn * 1000)
+                                });
+                                return recRes.data.signedUrl;
+                            }
+                        }
+                    }
+
                     if (error) {
                         console.warn('[SupabaseService] createSignedUrl error:', error.message);
                         this._lastStorageError = {
-                            code: error.status || error.statusCode || 'STORAGE_ERROR',
+                            code: error.status || error.statusCode || 404,
                             message: error.message
                         };
                         return null;

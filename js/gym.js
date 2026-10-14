@@ -2819,7 +2819,13 @@ const GymEngine = {
                 SupabaseService.invalidateSignedGymPhotoUrl(photoPath);
             }
 
-            const signedUrl = await SupabaseService.getSignedGymPhotoUrl(photoPath, 3600, forceRefresh);
+            let signedUrl = null;
+            if (typeof SupabaseService.getSignedGymPhotoUrlForSession === 'function') {
+                signedUrl = await SupabaseService.getSignedGymPhotoUrlForSession(s, 3600, forceRefresh);
+            } else {
+                signedUrl = await SupabaseService.getSignedGymPhotoUrl(photoPath, 3600, forceRefresh, s);
+            }
+            if (s.gym_photo_path) photoPath = s.gym_photo_path;
             
             if (!signedUrl) {
                 const lastErr = typeof SupabaseService.getLastStorageError === 'function' ? SupabaseService.getLastStorageError() : null;
