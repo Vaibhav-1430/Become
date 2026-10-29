@@ -18,6 +18,11 @@ const GymEngine = {
     // Active live workout session
     liveWorkout: null,
 
+    // Edit Completed Workout Session State
+    editingWorkoutSession: null,
+    editingWorkoutSessionIsDirty: false,
+    _isSavingEditedWorkout: false,
+
     // Mandatory Camera Check-In State
     checkInState: {
         isOpen: false,
@@ -87,6 +92,17 @@ const GymEngine = {
         if (typeof GymExportEngine !== 'undefined' && typeof GymExportEngine.exportSingleWorkout === 'function') {
             GymExportEngine.exportSingleWorkout(id);
         }
+    },
+
+    canUserEditSession(session) {
+        if (!session) return false;
+        const currentUserId = (typeof SupabaseService !== 'undefined' && SupabaseService.getUserId && SupabaseService.getUserId()) ||
+                              (typeof Store !== 'undefined' && Store.getUserId && Store.getUserId()) || null;
+        const sessionOwnerId = session.userId || session.user_id;
+        if (currentUserId && sessionOwnerId && currentUserId !== sessionOwnerId) {
+            return false;
+        }
+        return true;
     },
 
     // -------------------------------------------------------------------------
@@ -300,6 +316,11 @@ const GymEngine = {
                             ${(completedSession.gym_photo_path || completedSession.gymPhoto?.storagePath || completedSession.gymPhoto?.url || completedSession.gym_photo_url || completedSession.gymPhoto?.base64) ? `
                                 <button class="btn-view-photo" onclick="GymEngine.viewSessionPhoto('${completedSession.id}')">
                                     📸 View Gym Photo
+                                </button>
+                            ` : ''}
+                            ${this.canUserEditSession(completedSession) ? `
+                                <button type="button" class="action-btn-ghost btn-edit-workout" onclick="GymEngine.openEditWorkoutModal('${completedSession.id}')" title="Edit this completed workout session">
+                                    ✏️ Edit Workout
                                 </button>
                             ` : ''}
                             <button class="action-btn-ghost btn-export-single-workout" onclick="GymEngine.exportSingleWorkout('${completedSession.id}')" title="Export this workout as PDF">
@@ -2014,6 +2035,8 @@ const GymEngine = {
         if (this.exercisePickerState?.mode === 'selection') {
             this.toggleExerciseSelection(ex.id);
             this.renderExercisePickerModalUI();
+        } else if (this.exercisePickerState?.mode === 'edit_workout') {
+            this.addExerciseToEditingWorkout(ex);
         } else {
             this.addExerciseToActiveWorkout(ex);
         }
@@ -2530,6 +2553,8 @@ const GymEngine = {
             }
             Store.saveActiveWorkoutSession(this.liveWorkout);
             this.closeExercisePickerModal();
+        } else if (this.exercisePickerState?.mode === 'edit_workout' && this.editingWorkoutSession) {
+            this.addExerciseToEditingWorkout(newEx);
         } else if (this.liveWorkout?.stage === 'logging' || (this.liveWorkout && Array.isArray(this.liveWorkout.exercises))) {
             this.addExerciseToActiveWorkout(newEx);
         } else {
@@ -2662,6 +2687,11 @@ const GymEngine = {
                                         <button type="button" class="action-btn-ghost btn-export-single-workout" onclick="GymEngine.exportSingleWorkout('${s.id}')" title="Export this workout session as PDF">
                                             📄 EXPORT PDF
                                         </button>
+                                        ${this.canUserEditSession(s) ? `
+                                            <button type="button" class="action-btn-ghost btn-edit-workout" onclick="GymEngine.openEditWorkoutModal('${s.id}')" title="Edit this workout session">
+                                                ✏️ EDIT WORKOUT
+                                            </button>
+                                        ` : ''}
                                         <button type="button" class="action-btn-ghost btn-view-workout" onclick="GymEngine.viewSessionDetails('${s.id}')" title="View workout exercises and sets">
                                             VIEW WORKOUT ↗
                                         </button>
@@ -2977,7 +3007,12 @@ const GymEngine = {
                     <button class="action-btn-ghost danger btn-delete-workout" onclick="GymEngine.confirmDeleteWorkout('${s.id}')">
                         🗑️ Delete Workout
                     </button>
-                    <div style="display: flex; gap: 8px;">
+                    <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                        ${this.canUserEditSession(s) ? `
+                            <button class="action-btn-ghost btn-edit-workout" onclick="GymEngine.openEditWorkoutModal('${s.id}')" title="Edit this workout session">
+                                ✏️ Edit Workout
+                            </button>
+                        ` : ''}
                         <button class="action-btn-ghost btn-export-single-workout" onclick="GymEngine.exportSingleWorkout('${s.id}')">
                             📄 EXPORT WORKOUT PDF
                         </button>
@@ -3070,6 +3105,644 @@ const GymEngine = {
                 this.render();
             }
             showToast('Failed to delete workout: ' + (err.message || 'Unknown error'), 'error');
+        }
+    },
+
+    // -------------------------------------------------------------------------
+    // Edit Completed Workout Flow (Safe Reopen, Set/Exercise Editing, Sync)
+    // -------------------------------------------------------------------------
+    openEditWorkoutModal(sessionId) {
+        const rawSession = Store.getWorkoutSessionById(sessionId);
+        if (!rawSession) {
+            showToast('Workout session not found.', 'error');
+            return;
+        }
+
+        if (!this.canUserEditSession(rawSession)) {
+            showToast('You do not have permission to edit this workout session.', 'error');
+            return;
+        }
+
+        const detailModal = document.getElementById('workoutSessionDetailModal');
+        if (detailModal) detailModal.classList.remove('active');
+
+        // Deep clone session to protect original until explicit user save
+        const session = JSON.parse(JSON.stringify(rawSession));
+        const rawRoutine = (session.workoutType || session.routineName || 'Custom Workout').trim();
+        const routineName = (rawRoutine && rawRoutine !== 'undefined' && rawRoutine !== 'null') ? rawRoutine : 'Custom Workout';
+
+        session.routineName = routineName;
+        session.workoutType = routineName;
+        session.durationMinutes = Number(session.durationMinutes ?? session.duration ?? 0) || 0;
+
+        // Normalize exercises and sets
+        session.exercises = (session.exercises || []).map((ex, exIdx) => ({
+            id: ex.id || ('ex_' + Date.now() + '_' + exIdx),
+            exerciseId: ex.exerciseId || ex.id || ('ex_id_' + exIdx),
+            name: ex.name || ex.exerciseName || ex.exercise_name_snapshot || 'Exercise',
+            muscleGroup: ex.muscleGroup || ex.muscle_group || 'General',
+            category: ex.category || ex.muscleGroup || 'General',
+            equipment: ex.equipment || 'Standard',
+            notes: ex.notes || '',
+            skipped: !!ex.skipped,
+            completed: ex.completed !== false,
+            sets: (ex.sets || []).map((st, sIdx) => ({
+                id: st.id || ('set_' + sIdx),
+                setNumber: st.setNumber ?? st.set_number ?? (sIdx + 1),
+                weightKg: st.weightKg !== undefined && st.weightKg !== null ? st.weightKg : (st.weight_kg ?? ''),
+                reps: st.reps !== undefined && st.reps !== null ? st.reps : '',
+                rpe: st.rpe !== undefined && st.rpe !== null ? st.rpe : '',
+                completed: st.completed !== false && st.completed !== 'false',
+                isWeightPr: !!(st.isWeightPr || st.is_weight_pr),
+                isRepPr: !!(st.isRepPr || st.is_rep_pr)
+            }))
+        }));
+
+        this.editingWorkoutSession = session;
+        this.editingWorkoutSessionIsDirty = false;
+        this._isSavingEditedWorkout = false;
+
+        let modal = document.getElementById('editWorkoutModal');
+        if (!modal) {
+            modal = document.createElement('div');
+            modal.className = 'modal-overlay';
+            modal.id = 'editWorkoutModal';
+            document.body.appendChild(modal);
+        }
+
+        modal.onclick = (e) => {
+            if (e.target === modal) {
+                GymEngine.cancelEditWorkout();
+            }
+        };
+
+        this.renderEditWorkoutModalUI();
+        modal.classList.add('active');
+    },
+
+    closeEditWorkoutModal(force = false) {
+        if (!force && this.editingWorkoutSessionIsDirty) {
+            if (!confirm('You have unsaved changes. Discard them and close?')) {
+                return;
+            }
+        }
+        this.editingWorkoutSession = null;
+        this.editingWorkoutSessionIsDirty = false;
+        this._isSavingEditedWorkout = false;
+        const modal = document.getElementById('editWorkoutModal');
+        if (modal) modal.classList.remove('active');
+    },
+
+    cancelEditWorkout() {
+        const wasDirty = this.editingWorkoutSessionIsDirty;
+        this.closeEditWorkoutModal(false);
+        if (!this.editingWorkoutSession && wasDirty) {
+            showToast('Workout edits discarded.', 'info');
+        }
+    },
+
+    calculateWorkoutTotals(exercises = []) {
+        let totalVolumeKg = 0;
+        let totalSets = 0;
+        let totalReps = 0;
+        let exerciseCount = 0;
+
+        (exercises || []).forEach(ex => {
+            if (!ex.skipped) {
+                let hasValidSet = false;
+                (ex.sets || []).forEach(st => {
+                    const isCompleted = st.completed === true || (st.completed !== false && st.completed !== 'false' && Boolean(st.completed));
+                    const wt = parseFloat(st.weightKg ?? st.weight_kg ?? 0) || 0;
+                    const rp = parseInt(st.reps ?? 0, 10) || 0;
+                    if (isCompleted && rp > 0) {
+                        totalSets++;
+                        totalReps += rp;
+                        if (wt > 0) {
+                            totalVolumeKg += (wt * rp);
+                        }
+                        hasValidSet = true;
+                    }
+                });
+                if (hasValidSet || (ex.sets && ex.sets.length > 0)) {
+                    exerciseCount++;
+                }
+            }
+        });
+
+        return {
+            totalVolumeKg: Math.round(totalVolumeKg),
+            totalSets,
+            totalReps,
+            exerciseCount
+        };
+    },
+
+    updateEditWorkoutSummaryMetrics() {
+        if (!this.editingWorkoutSession) return;
+        const totals = this.calculateWorkoutTotals(this.editingWorkoutSession.exercises);
+        const volEl = document.getElementById('editWorkoutMetricVolume');
+        if (volEl) volEl.textContent = `${totals.totalVolumeKg.toLocaleString()} kg`;
+        const setsEl = document.getElementById('editWorkoutMetricSets');
+        if (setsEl) setsEl.textContent = `${totals.totalSets}`;
+        const repsEl = document.getElementById('editWorkoutMetricReps');
+        if (repsEl) repsEl.textContent = `${totals.totalReps}`;
+        const exEl = document.getElementById('editWorkoutMetricExercises');
+        if (exEl) exEl.textContent = `${totals.exerciseCount}`;
+    },
+
+    renderEditWorkoutModalUI() {
+        const modal = document.getElementById('editWorkoutModal');
+        if (!modal || !this.editingWorkoutSession) return;
+
+        const sess = this.editingWorkoutSession;
+        const totals = this.calculateWorkoutTotals(sess.exercises);
+        const hasPhoto = !!(sess.gym_photo_path || sess.gymPhoto?.storagePath || sess.gym_photo_url || sess.gymPhoto?.url || sess.gymPhoto?.base64);
+
+        modal.innerHTML = `
+            <div class="modal-window edit-workout-modal-window" style="width: min(780px, calc(100vw - 28px)); max-height: calc(90vh - 20px);">
+                <div class="modal-header">
+                    <div>
+                        <span style="font-size: 11px; color: var(--gold); text-transform: uppercase; font-weight: 800; letter-spacing: 0.5px;">COMPLETED SESSION</span>
+                        <h3 style="margin: 2px 0 0 0; color: #fff; font-size: 20px; display: flex; align-items: center; gap: 8px;">
+                            <span>✏️ Edit Workout</span>
+                        </h3>
+                    </div>
+                    <button type="button" class="btn-close-modal" onclick="GymEngine.cancelEditWorkout()">×</button>
+                </div>
+
+                <div class="modal-body edit-workout-modal-body">
+                    <!-- Metadata Editor -->
+                    <div class="edit-workout-meta-grid">
+                        <div class="edit-meta-item">
+                            <label>Workout Routine</label>
+                            <input
+                                type="text"
+                                class="edit-workout-input"
+                                id="editWorkoutRoutineName"
+                                value="${sess.routineName || sess.workoutType || ''}"
+                                placeholder="e.g. Legs + Shoulders"
+                                oninput="GymEngine.updateEditingWorkoutMetadata('routineName', this.value)"
+                            >
+                        </div>
+                        <div class="edit-meta-item">
+                            <label>Workout Date</label>
+                            <input
+                                type="date"
+                                class="edit-workout-input"
+                                id="editWorkoutDate"
+                                value="${sess.date || ''}"
+                                onchange="GymEngine.updateEditingWorkoutMetadata('date', this.value)"
+                            >
+                        </div>
+                        <div class="edit-meta-item">
+                            <label>Duration (mins)</label>
+                            <input
+                                type="number"
+                                min="1"
+                                max="600"
+                                class="edit-workout-input"
+                                id="editWorkoutDuration"
+                                value="${sess.durationMinutes || 0}"
+                                oninput="GymEngine.updateEditingWorkoutMetadata('durationMinutes', this.value)"
+                            >
+                        </div>
+                    </div>
+
+                    <!-- Photo Attachment Bar -->
+                    <div class="edit-workout-photo-bar">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <span style="font-size: 15px;">📸</span>
+                            <span style="font-size: 12.5px; color: var(--text-secondary);">
+                                ${hasPhoto ? 'Gym check-in photo securely preserved with session.' : 'No gym check-in photo recorded for this session.'}
+                            </span>
+                        </div>
+                        ${hasPhoto ? `
+                            <button type="button" class="action-btn-ghost btn-view-photo" style="font-size: 11.5px; padding: 4px 10px;" onclick="GymEngine.viewSessionPhoto('${sess.id}')">
+                                📸 View Photo ↗
+                            </button>
+                        ` : ''}
+                    </div>
+
+                    <!-- Live Summary Stats -->
+                    <div class="edit-workout-stats-grid">
+                        <div class="edit-stat-box">
+                            <span class="edit-stat-lbl">Total Volume</span>
+                            <span class="edit-stat-val" style="color: var(--sky);" id="editWorkoutMetricVolume">${totals.totalVolumeKg.toLocaleString()} kg</span>
+                        </div>
+                        <div class="edit-stat-box">
+                            <span class="edit-stat-lbl">Completed Sets</span>
+                            <span class="edit-stat-val" id="editWorkoutMetricSets">${totals.totalSets}</span>
+                        </div>
+                        <div class="edit-stat-box">
+                            <span class="edit-stat-lbl">Total Reps</span>
+                            <span class="edit-stat-val" id="editWorkoutMetricReps">${totals.totalReps}</span>
+                        </div>
+                        <div class="edit-stat-box">
+                            <span class="edit-stat-lbl">Exercises</span>
+                            <span class="edit-stat-val" style="color: var(--gold);" id="editWorkoutMetricExercises">${totals.exerciseCount}</span>
+                        </div>
+                    </div>
+
+                    <!-- Exercises List -->
+                    <div class="edit-exercises-stack">
+                        ${(sess.exercises || []).length === 0 ? `
+                            <div style="text-align: center; padding: 28px; background: rgba(255,255,255,0.02); border: 1px dashed rgba(255,255,255,0.1); border-radius: 8px;">
+                                <span style="font-size: 28px; display: block; margin-bottom: 6px;">🏋️</span>
+                                <div style="color: #fff; font-weight: 700; font-size: 14px;">No exercises in this workout session.</div>
+                                <div style="color: var(--text-muted); font-size: 12.5px; margin-top: 4px;">Click the button below to add an exercise from your library.</div>
+                            </div>
+                        ` : sess.exercises.map((ex, exIdx) => {
+                            const isFirst = exIdx === 0;
+                            const isLast = exIdx === sess.exercises.length - 1;
+                            const perf = this.getExercisePerformanceDetails(ex.name, ex.exerciseId);
+                            const prevSets = (perf.hasHistory && perf.sets && perf.sets.length > 0) ? perf.sets : (ex.previousSets || []);
+
+                            return `
+                                <div class="edit-ex-card" id="edit-ex-card-${exIdx}">
+                                    <div class="edit-ex-header">
+                                        <div class="edit-ex-title-box">
+                                            <span class="edit-ex-name">${ex.name}</span>
+                                            <span class="edit-ex-muscle">${ex.muscleGroup || 'General'}</span>
+                                        </div>
+                                        <div class="edit-ex-actions-top">
+                                            <button
+                                                type="button"
+                                                class="btn-reorder-ex"
+                                                title="Move exercise up"
+                                                ${isFirst ? 'disabled' : ''}
+                                                onclick="GymEngine.moveExerciseInEditingWorkout(${exIdx}, ${exIdx - 1})"
+                                            >▲</button>
+                                            <button
+                                                type="button"
+                                                class="btn-reorder-ex"
+                                                title="Move exercise down"
+                                                ${isLast ? 'disabled' : ''}
+                                                onclick="GymEngine.moveExerciseInEditingWorkout(${exIdx}, ${exIdx + 1})"
+                                            >▼</button>
+                                            <button
+                                                type="button"
+                                                class="btn-remove-ex"
+                                                title="Remove exercise from session"
+                                                onclick="GymEngine.removeExerciseFromEditingWorkout(${exIdx})"
+                                            >🗑️ Remove</button>
+                                        </div>
+                                    </div>
+
+                                    <!-- Sets Table -->
+                                    <div class="edit-sets-table">
+                                        <div class="edit-set-row header">
+                                            <span>Set</span>
+                                            <span>Weight (kg)</span>
+                                            <span>Reps</span>
+                                            <span class="col-edit-rpe">RPE</span>
+                                            <span>Done</span>
+                                            <span></span>
+                                        </div>
+
+                                        ${(ex.sets || []).map((s, sIdx) => {
+                                            const prevS = prevSets[sIdx];
+                                            return `
+                                                <div class="edit-set-row ${s.completed ? 'is-done' : ''}">
+                                                    <span style="font-size: 12.5px; font-weight: 700; color: var(--text-secondary);">Set ${s.setNumber}</span>
+                                                    <div>
+                                                        <input
+                                                            type="number"
+                                                            step="0.5"
+                                                            min="0"
+                                                            class="set-input"
+                                                            placeholder="${prevS?.weightKg || 'kg'}"
+                                                            value="${s.weightKg !== '' && s.weightKg !== null && s.weightKg !== undefined ? s.weightKg : ''}"
+                                                            oninput="GymEngine.updateEditingSetField(${exIdx}, ${sIdx}, 'weightKg', this.value)"
+                                                        >
+                                                    </div>
+                                                    <div>
+                                                        <input
+                                                            type="number"
+                                                            step="1"
+                                                            min="0"
+                                                            class="set-input"
+                                                            placeholder="${prevS?.reps || 'reps'}"
+                                                            value="${s.reps !== '' && s.reps !== null && s.reps !== undefined ? s.reps : ''}"
+                                                            oninput="GymEngine.updateEditingSetField(${exIdx}, ${sIdx}, 'reps', this.value)"
+                                                        >
+                                                    </div>
+                                                    <div class="col-edit-rpe">
+                                                        <div class="set-rpe-selector">
+                                                            ${[6, 7, 8, 9, 10].map(r => `
+                                                                <button
+                                                                    type="button"
+                                                                    class="btn-rpe-chip ${s.rpe == r ? 'active' : ''}"
+                                                                    onclick="GymEngine.toggleEditingSetRpe(${exIdx}, ${sIdx}, ${r})"
+                                                                >${r}</button>
+                                                            `).join('')}
+                                                        </div>
+                                                    </div>
+                                                    <div>
+                                                        <button
+                                                            type="button"
+                                                            class="btn-check-set ${s.completed ? 'checked' : ''}"
+                                                            title="${s.completed ? 'Mark incomplete' : 'Mark completed'}"
+                                                            onclick="GymEngine.toggleEditingSetDone(${exIdx}, ${sIdx})"
+                                                        >${s.completed ? '✓' : '○'}</button>
+                                                    </div>
+                                                    <div>
+                                                        <button
+                                                            type="button"
+                                                            class="btn-delete-set"
+                                                            title="Delete set"
+                                                            onclick="GymEngine.removeSetFromEditingWorkout(${exIdx}, ${sIdx})"
+                                                        >🗑️</button>
+                                                    </div>
+                                                </div>
+                                            `;
+                                        }).join('')}
+                                    </div>
+
+                                    <div style="display: flex; justify-content: flex-start; margin-top: 4px;">
+                                        <button
+                                            type="button"
+                                            class="action-btn-ghost"
+                                            style="font-size: 11.5px; padding: 4px 12px;"
+                                            onclick="GymEngine.addSetToEditingWorkout(${exIdx})"
+                                        >＋ Add Set</button>
+                                    </div>
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+
+                    <!-- Add Exercise Button -->
+                    <div style="margin-top: 10px;">
+                        <button
+                            type="button"
+                            class="btn-gym-quick-record"
+                            style="width: 100%; padding: 12px; font-weight: 700; font-size: 13.5px; justify-content: center; display: flex; align-items: center; gap: 8px;"
+                            onclick="GymEngine.openAddExerciseToEditingWorkoutModal()"
+                        >
+                            <span>＋</span>
+                            <span>Add Exercise to Workout</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center; padding: 14px 20px; border-top: 1px solid rgba(255,255,255,0.08); flex-wrap: wrap; gap: 10px;">
+                    <button type="button" class="action-btn-ghost" onclick="GymEngine.cancelEditWorkout()">
+                        Discard / Cancel
+                    </button>
+                    <button
+                        type="button"
+                        class="btn-primary"
+                        id="btnSaveEditedWorkout"
+                        style="padding: 10px 24px; font-weight: 800; display: inline-flex; align-items: center; gap: 8px;"
+                        onclick="GymEngine.saveEditedWorkout()"
+                    >
+                        <span>💾</span>
+                        <span>Save Changes ✓</span>
+                    </button>
+                </div>
+            </div>
+        `;
+    },
+
+    updateEditingWorkoutMetadata(field, val) {
+        if (!this.editingWorkoutSession) return;
+        this.editingWorkoutSession[field] = val;
+        if (field === 'routineName') {
+            this.editingWorkoutSession.workoutType = val;
+        }
+        if (field === 'date' && val) {
+            const dObj = new Date(val + 'T12:00:00');
+            const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+            if (!isNaN(dObj.getTime())) {
+                const dayName = dayNames[dObj.getDay()];
+                this.editingWorkoutSession.dayOfWeek = dayName;
+                this.editingWorkoutSession.dayKey = dayName.toLowerCase();
+            }
+        }
+        this.editingWorkoutSessionIsDirty = true;
+    },
+
+    updateEditingSetField(exIdx, sIdx, field, val) {
+        if (!this.editingWorkoutSession?.exercises[exIdx]?.sets[sIdx]) return;
+        const set = this.editingWorkoutSession.exercises[exIdx].sets[sIdx];
+        set[field] = val;
+        this.editingWorkoutSessionIsDirty = true;
+        this.updateEditWorkoutSummaryMetrics();
+    },
+
+    toggleEditingSetDone(exIdx, sIdx) {
+        if (!this.editingWorkoutSession?.exercises[exIdx]?.sets[sIdx]) return;
+        const set = this.editingWorkoutSession.exercises[exIdx].sets[sIdx];
+        set.completed = !set.completed;
+        this.editingWorkoutSessionIsDirty = true;
+        this.renderEditWorkoutModalUI();
+    },
+
+    toggleEditingSetRpe(exIdx, sIdx, rpeVal) {
+        if (!this.editingWorkoutSession?.exercises[exIdx]?.sets[sIdx]) return;
+        const set = this.editingWorkoutSession.exercises[exIdx].sets[sIdx];
+        set.rpe = set.rpe == rpeVal ? '' : rpeVal;
+        this.editingWorkoutSessionIsDirty = true;
+        this.renderEditWorkoutModalUI();
+    },
+
+    addSetToEditingWorkout(exIdx) {
+        if (!this.editingWorkoutSession?.exercises[exIdx]) return;
+        const ex = this.editingWorkoutSession.exercises[exIdx];
+        if (!ex.sets) ex.sets = [];
+        const prevSet = ex.sets[ex.sets.length - 1];
+        const nextNum = ex.sets.length + 1;
+        ex.sets.push({
+            id: 'set_' + Date.now() + '_' + nextNum,
+            setNumber: nextNum,
+            weightKg: prevSet ? prevSet.weightKg : '',
+            reps: prevSet ? prevSet.reps : '',
+            rpe: '',
+            completed: true
+        });
+        this.editingWorkoutSessionIsDirty = true;
+        this.renderEditWorkoutModalUI();
+    },
+
+    removeSetFromEditingWorkout(exIdx, sIdx) {
+        if (!this.editingWorkoutSession?.exercises[exIdx]?.sets) return;
+        const sets = this.editingWorkoutSession.exercises[exIdx].sets;
+        sets.splice(sIdx, 1);
+        sets.forEach((s, idx) => {
+            s.setNumber = idx + 1;
+        });
+        this.editingWorkoutSessionIsDirty = true;
+        this.renderEditWorkoutModalUI();
+    },
+
+    openAddExerciseToEditingWorkoutModal() {
+        this.openExercisePickerModal({ mode: 'edit_workout' });
+    },
+
+    addExerciseToEditingWorkout(targetEx) {
+        if (!this.editingWorkoutSession) return;
+        if (!this.editingWorkoutSession.exercises) this.editingWorkoutSession.exercises = [];
+
+        const library = Store.getExerciseLibrary();
+        let target = null;
+        if (typeof targetEx === 'object' && targetEx !== null) {
+            target = targetEx;
+        } else {
+            target = library.find(e => e.id === targetEx || (e.name || '').trim().toLowerCase() === String(targetEx).trim().toLowerCase());
+        }
+
+        if (!target) {
+            showToast('Exercise not found in library.', 'error');
+            return;
+        }
+
+        const normName = (target.name || '').trim().toLowerCase();
+        const alreadyExists = this.editingWorkoutSession.exercises.some(e =>
+            (e.exerciseId && e.exerciseId === target.id) ||
+            (e.name || '').trim().toLowerCase() === normName
+        );
+
+        if (alreadyExists) {
+            showToast(`${target.name} is already in this workout.`, 'warning');
+            return;
+        }
+
+        const perf = this.getExercisePerformanceDetails(target.name, target.id);
+        const defaultWeight = perf.sets?.[0]?.weightKg ?? '';
+        const defaultReps = perf.sets?.[0]?.reps ?? '';
+
+        const newEx = {
+            id: 'ex_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+            exerciseId: target.id,
+            name: target.name,
+            muscleGroup: target.muscleGroup || 'General',
+            category: target.category || target.muscleGroup || 'General',
+            equipment: target.equipment || 'Standard',
+            notes: target.notes || '',
+            previousSets: perf.sets || [],
+            sets: [
+                { id: 'set_' + Date.now() + '_1', setNumber: 1, weightKg: defaultWeight, reps: defaultReps, rpe: '', completed: true },
+                { id: 'set_' + Date.now() + '_2', setNumber: 2, weightKg: defaultWeight, reps: defaultReps, rpe: '', completed: true },
+                { id: 'set_' + Date.now() + '_3', setNumber: 3, weightKg: defaultWeight, reps: defaultReps, rpe: '', completed: true }
+            ],
+            skipped: false,
+            completed: true
+        };
+
+        this.editingWorkoutSession.exercises.push(newEx);
+        this.editingWorkoutSessionIsDirty = true;
+        this.closeExercisePickerModal();
+        this.renderEditWorkoutModalUI();
+        showToast(`Added ${target.name} to workout.`, 'success');
+    },
+
+    removeExerciseFromEditingWorkout(exIdx) {
+        if (!this.editingWorkoutSession?.exercises) return;
+        const ex = this.editingWorkoutSession.exercises[exIdx];
+        const name = ex?.name || 'Exercise';
+        if (!confirm(`Remove "${name}" from this workout?`)) return;
+
+        this.editingWorkoutSession.exercises.splice(exIdx, 1);
+        this.editingWorkoutSessionIsDirty = true;
+        this.renderEditWorkoutModalUI();
+        showToast(`Removed ${name}`, 'info');
+    },
+
+    moveExerciseInEditingWorkout(fromIdx, toIdx) {
+        if (!this.editingWorkoutSession?.exercises) return;
+        const exercises = this.editingWorkoutSession.exercises;
+        if (toIdx < 0 || toIdx >= exercises.length) return;
+
+        const [moved] = exercises.splice(fromIdx, 1);
+        exercises.splice(toIdx, 0, moved);
+        this.editingWorkoutSessionIsDirty = true;
+        this.renderEditWorkoutModalUI();
+    },
+
+    saveEditedWorkout() {
+        if (this._isSavingEditedWorkout) return;
+        this._isSavingEditedWorkout = true;
+
+        const saveBtn = document.getElementById('btnSaveEditedWorkout');
+        if (saveBtn) {
+            saveBtn.disabled = true;
+            saveBtn.innerHTML = '<span>⏳</span><span>Saving...</span>';
+        }
+
+        try {
+            if (!this.editingWorkoutSession) {
+                throw new Error('No active workout edit session.');
+            }
+
+            const sess = this.editingWorkoutSession;
+
+            // Authorization check
+            if (!this.canUserEditSession(sess)) {
+                throw new Error('You do not have permission to modify this workout session.');
+            }
+
+            // Validation: Workout date
+            const targetDate = (sess.date || '').trim();
+            if (!targetDate || !/^\d{4}-\d{2}-\d{2}$/.test(targetDate)) {
+                throw new Error('Please enter a valid workout date (YYYY-MM-DD).');
+            }
+
+            // Validation: At least one exercise
+            const validExercises = (sess.exercises || []).filter(e => !e.skipped);
+            if (validExercises.length === 0) {
+                throw new Error('Workout must contain at least one exercise.');
+            }
+
+            // Auto-complete filled sets before final totals calculation
+            validExercises.forEach(ex => {
+                (ex.sets || []).forEach(st => {
+                    const wt = parseFloat(st.weightKg);
+                    const rp = parseInt(st.reps, 10);
+                    if (st.completed === undefined) {
+                        st.completed = (!isNaN(wt) && !isNaN(rp) && rp > 0);
+                    }
+                });
+            });
+
+            // Recalculate totals
+            const totals = this.calculateWorkoutTotals(validExercises);
+            const routineName = (sess.routineName || sess.workoutType || 'Custom Workout').trim();
+            const durationMin = Number(sess.durationMinutes ?? sess.duration ?? 0) || 0;
+
+            const updatedSessionPayload = {
+                ...sess,
+                workoutType: routineName,
+                routineName: routineName,
+                durationMinutes: durationMin,
+                duration: durationMin,
+                totalVolumeKg: totals.totalVolumeKg,
+                totalSets: totals.totalSets,
+                totalReps: totals.totalReps,
+                exerciseCount: totals.exerciseCount,
+                exercises: sess.exercises,
+                status: sess.status || 'completed',
+                updatedAt: DateUtils.nowISO()
+            };
+
+            const saved = Store.saveWorkoutSession(updatedSessionPayload);
+            if (!saved) {
+                throw new Error('Failed to update workout session in local storage.');
+            }
+
+            this.editingWorkoutSessionIsDirty = false;
+            this.closeEditWorkoutModal(true);
+
+            showToast(`Workout saved! Updated to ${totals.totalSets} sets (${totals.totalVolumeKg.toLocaleString()} kg total volume).`, 'success');
+            this.render();
+        } catch (err) {
+            console.error('[Gym] saveEditedWorkout error:', err);
+            showToast('Save failed: ' + (err.message || 'Unknown error'), 'error');
+        } finally {
+            this._isSavingEditedWorkout = false;
+            if (saveBtn) {
+                saveBtn.disabled = false;
+                saveBtn.innerHTML = '<span>💾</span><span>Save Changes ✓</span>';
+            }
         }
     },
 

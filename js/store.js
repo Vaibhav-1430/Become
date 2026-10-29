@@ -2468,7 +2468,7 @@ class StorageManager {
 
         const entry = {
             id: finalSessionId,
-            userId: currentAuthId,
+            userId: sessionData.userId || currentAuthId,
             date: targetDate,
             dayOfWeek: sessionData.dayOfWeek || sessionData.day_of_week || dayName,
             dayKey: (sessionData.dayKey || sessionData.day_key || dayName).toLowerCase(),
@@ -2510,7 +2510,9 @@ class StorageManager {
             gym.sessions.unshift(entry);
         }
 
-        gym.activeSession = null;
+        if (gym.activeSession && gym.activeSession.id === entry.id) {
+            gym.activeSession = null;
+        }
         this.save(true);
 
         if (typeof window !== 'undefined' && window.SyncEngine && typeof window.SyncEngine.pushWorkoutSession === 'function') {
@@ -2660,8 +2662,10 @@ class StorageManager {
             // 1. Primary key deduplication
             if (idMap.has(sess.id)) {
                 const existing = idMap.get(sess.id);
-                // Keep the richer record
-                if ((sess.exercises?.length || 0) > (existing.exercises?.length || 0) || (sess.totalVolumeKg > existing.totalVolumeKg)) {
+                // Keep the record with the latest update timestamp, or richer record
+                const sessUpdated = sess.updatedAt || sess.completedAt || '';
+                const existUpdated = existing.updatedAt || existing.completedAt || '';
+                if (sessUpdated > existUpdated || (sess.exercises?.length || 0) > (existing.exercises?.length || 0) || (sess.totalVolumeKg > existing.totalVolumeKg)) {
                     idMap.set(sess.id, sess);
                     const idx = result.findIndex(r => r.id === sess.id);
                     if (idx >= 0) result[idx] = sess;
@@ -2781,6 +2785,7 @@ class StorageManager {
             let prevMaxRepsAtWeight = {};
 
             pastSessions.forEach(ps => {
+                if (ps.id === session.id) return;
                 (ps.exercises || []).forEach(pex => {
                     if ((pex.name || '').trim().toLowerCase() === exName && !pex.skipped) {
                         (pex.sets || []).forEach(psSet => {
@@ -2796,6 +2801,8 @@ class StorageManager {
             });
 
             (ex.sets || []).forEach(s => {
+                s.isWeightPr = false;
+                s.isRepPr = false;
                 const wt = parseFloat(s.weightKg) || 0;
                 const rp = parseInt(s.reps, 10) || 0;
                 if (wt > 0 && wt > prevMaxWeight && prevMaxWeight > 0) {
