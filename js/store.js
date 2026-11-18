@@ -82,6 +82,7 @@ class StorageManager {
                     trackPRs: true
                 },
                 schedule: {},   // dayKey -> { dayName, routineName, isRestDay, exercises: [ { id, name, muscleGroup, equipment, defaultSets, targetReps, notes } ] }
+                dailyOverrides: {}, // dateStr (YYYY-MM-DD) -> { date, dayKey, dayName, routineName, workoutType, isRestDay, muscleGroups, exercises, isOverride }
                 sessions: [],   // [ { id, date, routineName, dayKey, durationMinutes, totalVolumeKg, totalSets, totalReps, completedAt, exercises: [...] } ]
                 activeSession: null,
                 measurements: []
@@ -198,6 +199,7 @@ class StorageManager {
                         ...(parsed.gym || {}),
                         settings: { ...(this.memoryState.gym?.settings || {}), ...(parsed.gym?.settings || {}) },
                         schedule: { ...(this.memoryState.gym?.schedule || {}), ...(parsed.gym?.schedule || {}) },
+                        dailyOverrides: { ...(this.memoryState.gym?.dailyOverrides || {}), ...(parsed.gym?.dailyOverrides || {}), ...(parsed.gym?.settings?.dailyOverrides || {}) },
                         sessions: parsed.gym?.sessions || [],
                         activeSession: parsed.gym?.activeSession || null,
                         measurements: parsed.gym?.measurements || []
@@ -377,6 +379,7 @@ class StorageManager {
                                 ...(req.result.data.gym || {}),
                                 settings: { ...(this.memoryState.gym?.settings || {}), ...(req.result.data.gym?.settings || {}) },
                                 schedule: { ...(this.memoryState.gym?.schedule || {}), ...(req.result.data.gym?.schedule || {}) },
+                                dailyOverrides: { ...(this.memoryState.gym?.dailyOverrides || {}), ...(req.result.data.gym?.dailyOverrides || {}), ...(req.result.data.gym?.settings?.dailyOverrides || {}) },
                                 sessions: req.result.data.gym?.sessions || [],
                                 activeSession: req.result.data.gym?.activeSession || null,
                                 measurements: req.result.data.gym?.measurements || []
@@ -2164,11 +2167,15 @@ class StorageManager {
                     trackPRs: true
                 },
                 schedule: {},
+                dailyOverrides: {},
                 sessions: [],
                 customExercises: [],
                 activeSession: null,
                 measurements: []
             };
+        }
+        if (!this.memoryState.gym.dailyOverrides) {
+            this.memoryState.gym.dailyOverrides = this.memoryState.gym.settings?.dailyOverrides || {};
         }
         if (!this.memoryState.gym.customExercises) {
             this.memoryState.gym.customExercises = [];
@@ -2394,21 +2401,152 @@ class StorageManager {
         const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
         const dayKey = dayNames[dayIndex];
         const dayCapital = dayKey.charAt(0).toUpperCase() + dayKey.slice(1);
-        const templ = this.getWorkoutTemplateForDay(dayKey) || {
-            dayKey,
-            dayName: dayCapital,
-            routineName: 'Rest',
-            workoutType: 'Rest',
-            isRestDay: true,
-            muscleGroups: [],
-            exercises: []
-        };
+
+        const gym = this.getGymState();
+        const override = (gym.dailyOverrides && gym.dailyOverrides[targetDate]) ||
+                         (gym.settings && gym.settings.dailyOverrides && gym.settings.dailyOverrides[targetDate]);
+
+        let templ;
+        if (override) {
+            const rName = (override.routineName || override.workoutType || (override.isRestDay ? 'Rest' : `${dayCapital} Workout`)).trim();
+            templ = {
+                ...override,
+                dayKey: override.dayKey || dayKey,
+                dayName: override.dayName || dayCapital,
+                routineName: rName,
+                workoutType: rName,
+                isRestDay: !!override.isRestDay,
+                muscleGroups: Array.isArray(override.muscleGroups) ? override.muscleGroups : (rName && !override.isRestDay ? rName.split('+').map(s => s.trim()) : []),
+                exercises: Array.isArray(override.exercises) ? override.exercises : [],
+                isOverride: true,
+                date: targetDate
+            };
+        } else {
+            templ = this.getWorkoutTemplateForDay(dayKey) || {
+                dayKey,
+                dayName: dayCapital,
+                routineName: 'Rest',
+                workoutType: 'Rest',
+                isRestDay: true,
+                muscleGroups: [],
+                exercises: []
+            };
+        }
+
         return {
             dayKey,
             dayName: dayCapital,
             date: targetDate,
             template: templ
         };
+    }
+
+    saveTodayWorkoutOverride(overrideData, targetDateStr = null) {
+        const dateStr = targetDateStr || DateUtils.todayIST();
+        const gym = this.getGymState();
+        if (!gym.dailyOverrides) gym.dailyOverrides = {};
+        if (!gym.settings) gym.settings = {};
+        if (!gym.settings.dailyOverrides) gym.settings.dailyOverrides = {};
+
+        const dObj = new Date(dateStr + 'T12:00:00');
+        const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+        const dayKey = dayNames[dObj.getDay()];
+        const dayCapital = dayKey.charAt(0).toUpperCase() + dayKey.slice(1);
+
+        const muscleGroups = Array.isArray(overrideData.muscleGroups) ? overrideData.muscleGroups : [];
+        const isRestDay = overrideData.isRestDay !== undefined ? !!overrideData.isRestDay : (muscleGroups.length === 0);
+        let routineName = (overrideData.routineName || overrideData.workoutType || '').trim();
+        if (!routineName) {
+            routineName = isRestDay ? 'Rest' : (muscleGroups.length > 0 ? muscleGroups.join(' + ') : `${dayCapital} Workout`);
+        }
+
+        const override = {
+            date: dateStr,
+            dayKey,
+            dayName: dayCapital,
+            routineName,
+            workoutType: routineName,
+            isRestDay,
+            muscleGroups,
+            exercises: Array.isArray(overrideData.exercises) ? overrideData.exercises : [],
+            isOverride: true,
+            updatedAt: (typeof DateUtils !== 'undefined' && DateUtils.nowISO) ? DateUtils.nowISO() : new Date().toISOString()
+        };
+
+        gym.dailyOverrides[dateStr] = override;
+        gym.settings.dailyOverrides[dateStr] = override;
+
+        this.save(true);
+
+        if (typeof window !== 'undefined' && window.SyncEngine && typeof window.SyncEngine.pushWorkoutPlan === 'function') {
+            window.SyncEngine.pushWorkoutPlan(gym.schedule, gym.settings);
+        } else if (typeof SupabaseService !== 'undefined' && SupabaseService.isAuthenticated()) {
+            SupabaseService.saveWorkoutPlan(gym.schedule, gym.settings);
+        }
+
+        return override;
+    }
+
+    removeTodayWorkoutOverride(targetDateStr = null) {
+        const dateStr = targetDateStr || DateUtils.todayIST();
+        const gym = this.getGymState();
+        let changed = false;
+        if (gym.dailyOverrides && gym.dailyOverrides[dateStr]) {
+            delete gym.dailyOverrides[dateStr];
+            changed = true;
+        }
+        if (gym.settings && gym.settings.dailyOverrides && gym.settings.dailyOverrides[dateStr]) {
+            delete gym.settings.dailyOverrides[dateStr];
+            changed = true;
+        }
+        if (changed) {
+            this.save(true);
+            if (typeof window !== 'undefined' && window.SyncEngine && typeof window.SyncEngine.pushWorkoutPlan === 'function') {
+                window.SyncEngine.pushWorkoutPlan(gym.schedule, gym.settings);
+            } else if (typeof SupabaseService !== 'undefined' && SupabaseService.isAuthenticated()) {
+                SupabaseService.saveWorkoutPlan(gym.schedule, gym.settings);
+            }
+        }
+        return true;
+    }
+
+    saveRecurringDayRoutine(dayKey, routineData) {
+        const gym = this.getGymState();
+        const key = (dayKey || '').toLowerCase();
+        const dayCapital = key.charAt(0).toUpperCase() + key.slice(1);
+        const muscleGroups = Array.isArray(routineData.muscleGroups) ? routineData.muscleGroups : [];
+        const isRestDay = routineData.isRestDay !== undefined ? !!routineData.isRestDay : (muscleGroups.length === 0);
+        let routineName = (routineData.routineName || routineData.workoutType || '').trim();
+        if (!routineName) {
+            routineName = isRestDay ? 'Rest' : (muscleGroups.length > 0 ? muscleGroups.join(' + ') : `${dayCapital} Workout`);
+        }
+
+        gym.schedule[key] = {
+            dayKey: key,
+            dayName: dayCapital,
+            routineName,
+            workoutType: routineName,
+            isRestDay,
+            muscleGroups,
+            exercises: Array.isArray(routineData.exercises) ? routineData.exercises : (gym.schedule[key]?.exercises || [])
+        };
+
+        const todayDate = (typeof DateUtils !== 'undefined' && DateUtils.todayIST) ? DateUtils.todayIST() : new Date().toISOString().split('T')[0];
+        const dObj = new Date(todayDate + 'T12:00:00');
+        const todayKey = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'][dObj.getDay()];
+        if (todayKey === key) {
+            if (gym.dailyOverrides && gym.dailyOverrides[todayDate]) {
+                delete gym.dailyOverrides[todayDate];
+            }
+            if (gym.settings && gym.settings.dailyOverrides && gym.settings.dailyOverrides[todayDate]) {
+                delete gym.settings.dailyOverrides[todayDate];
+            }
+        }
+
+        return this.saveGymPlan({
+            schedule: gym.schedule,
+            settings: gym.settings
+        });
     }
 
     _isValidUuid(id) {
@@ -3056,7 +3194,7 @@ class StorageManager {
         const dayIndex = new Date(dateStr + 'T12:00:00').getDay();
         const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
         const dayKey = dayNames[dayIndex];
-        const templ = gym.schedule[dayKey];
+        const templ = (this.getTodayWorkoutTemplate(dateStr) || {}).template || gym.schedule[dayKey];
 
         if (!templ) return null;
         if (templ.isRestDay) return { status: 'REST', label: 'Rest Day' };

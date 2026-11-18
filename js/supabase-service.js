@@ -2284,6 +2284,12 @@ const SupabaseService = {
             Store.memoryState.gym.isConfigured = cloudData.workoutPlan.is_configured;
             Store.memoryState.gym.schedule = cloudData.workoutPlan.schedule;
             Store.memoryState.gym.settings = cloudData.workoutPlan.settings;
+            if (cloudData.workoutPlan.settings && cloudData.workoutPlan.settings.dailyOverrides) {
+                Store.memoryState.gym.dailyOverrides = {
+                    ...(Store.memoryState.gym.dailyOverrides || {}),
+                    ...cloudData.workoutPlan.settings.dailyOverrides
+                };
+            }
         }
         if (Array.isArray(cloudData.workoutSessions) && cloudData.workoutSessions.length > 0) {
             if (!Store.memoryState.gym) Store.memoryState.gym = {};

@@ -966,6 +966,9 @@ const SyncEngine = {
             result.gym.isConfigured = cloud.workoutPlan.is_configured;
             result.gym.schedule = cloud.workoutPlan.schedule || result.gym.schedule;
             result.gym.settings = { ...(result.gym.settings || {}), ...(cloud.workoutPlan.settings || {}) };
+            if (result.gym.settings.dailyOverrides) {
+                result.gym.dailyOverrides = { ...(result.gym.dailyOverrides || {}), ...result.gym.settings.dailyOverrides };
+            }
         }
 
         if (Array.isArray(cloud.workoutSessions)) {
@@ -1362,6 +1365,9 @@ const SyncEngine = {
                 state.gym.isConfigured = rec.is_configured ?? true;
                 state.gym.schedule = rec.schedule;
                 state.gym.settings = { ...(state.gym.settings || {}), ...(rec.settings || {}) };
+                if (rec.settings && rec.settings.dailyOverrides) {
+                    state.gym.dailyOverrides = { ...(state.gym.dailyOverrides || {}), ...rec.settings.dailyOverrides };
+                }
                 Store.memoryState.gym = state.gym;
                 Store.save(true);
                 if (typeof GymEngine !== 'undefined' && typeof GymEngine.render === 'function') {

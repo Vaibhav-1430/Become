@@ -23,6 +23,19 @@ const GymEngine = {
     editingWorkoutSessionIsDirty: false,
     _isSavingEditedWorkout: false,
 
+    // Change Today's Planned Workout State
+    changeWorkoutState: null,
+    _isSavingTodayWorkout: false,
+    AVAILABLE_MUSCLE_GROUPS: [
+        { id: 'Chest', name: 'Chest', icon: '🏋️' },
+        { id: 'Back', name: 'Back', icon: '🛡️' },
+        { id: 'Shoulders', name: 'Shoulders', icon: '🎯' },
+        { id: 'Biceps', name: 'Biceps', icon: '💪' },
+        { id: 'Triceps', name: 'Triceps', icon: '⚡' },
+        { id: 'Legs', name: 'Legs', icon: '🦵' },
+        { id: 'Abs', name: 'Abs', icon: '🔥' }
+    ],
+
     // Mandatory Camera Check-In State
     checkInState: {
         isOpen: false,
@@ -348,12 +361,24 @@ const GymEngine = {
                 <div class="today-workout-hero-card rest">
                     <div class="twh-top">
                         <div>
-                            <span class="twh-badge rest">REST DAY</span>
+                            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                                <span class="twh-badge rest">REST DAY</span>
+                                ${templ?.isOverride ? `
+                                    <span class="twh-badge" style="background: rgba(245, 197, 24, 0.2); border-color: rgba(245, 197, 24, 0.6); color: var(--gold);" title="Manually changed to Rest for today">
+                                        ⚡ TODAY'S OVERRIDE
+                                    </span>
+                                ` : ''}
+                            </div>
                             <h2 style="margin: 4px 0 2px 0; color: #fff; font-size: 26px; font-weight: 800;">${todayInfo.dayName}</h2>
                             <div style="font-size: 18px; font-weight: 700; color: var(--text-secondary); margin-top: 4px;">Recovery / Rest</div>
                             <p style="color: var(--text-muted); margin: 8px 0 0 0; font-size: 13.5px; max-width: 600px;">
                                 Muscles recover and grow during rest. Rest days are an essential component of progressive overload and are NOT marked as missed workouts.
                             </p>
+                        </div>
+                        <div class="twh-actions" style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                            <button type="button" class="action-btn-ghost btn-change-today-workout" onclick="GymEngine.openChangeTodayWorkoutModal()" title="Change today's planned workout">
+                                ✏️ Change Workout
+                            </button>
                         </div>
                     </div>
                     <!-- Note: Do NOT show Start Workout button on Rest Day -->
@@ -365,7 +390,14 @@ const GymEngine = {
             <div class="today-workout-hero-card">
                 <div class="twh-top">
                     <div>
-                        <span class="twh-badge">TODAY'S WORKOUT</span>
+                        <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                            <span class="twh-badge">TODAY'S WORKOUT</span>
+                            ${templ?.isOverride ? `
+                                <span class="twh-badge" style="background: rgba(245, 197, 24, 0.2); border-color: rgba(245, 197, 24, 0.6); color: var(--gold);" title="Manually changed for today only">
+                                    ⚡ TODAY'S OVERRIDE
+                                </span>
+                            ` : ''}
+                        </div>
                         <h2 style="margin: 4px 0 2px 0; color: #fff; font-size: 26px; font-weight: 800;">${todayInfo.dayName.toUpperCase()}</h2>
                         <div style="font-size: 20px; font-weight: 800; color: var(--gold); margin-top: 2px;">${templ.workoutType || templ.routineName || 'REST / NO WORKOUT PLANNED'}</div>
                         <div class="twh-muscle-pills">
@@ -373,13 +405,353 @@ const GymEngine = {
                             <span style="color: var(--text-muted); font-size: 12px; margin-left: 6px; align-self: center;">${muscleGroups.length} muscle groups</span>
                         </div>
                     </div>
-                    <button class="btn-primary" style="padding: 14px 28px; font-size: 15px; font-weight: 800; border-radius: var(--radius-sm); box-shadow: 0 4px 20px rgba(245, 197, 24, 0.4); display: flex; align-items: center; gap: 8px;" onclick="GymEngine.startWorkoutToday()">
-                        <span>⚡</span>
-                        <span>START WORKOUT</span>
+                    <div class="twh-actions" style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                        <button type="button" class="action-btn-ghost btn-change-today-workout" onclick="GymEngine.openChangeTodayWorkoutModal()" title="Change today's planned muscle groups">
+                            ✏️ Change Workout
+                        </button>
+                        <button class="btn-primary" style="padding: 14px 28px; font-size: 15px; font-weight: 800; border-radius: var(--radius-sm); box-shadow: 0 4px 20px rgba(245, 197, 24, 0.4); display: flex; align-items: center; gap: 8px;" onclick="GymEngine.startWorkoutToday()">
+                            <span>⚡</span>
+                            <span>START WORKOUT</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+    },
+
+    // -------------------------------------------------------------------------
+    // Change Today's Planned Workout Modal & Logic
+    // -------------------------------------------------------------------------
+    openChangeTodayWorkoutModal() {
+        const todayInfo = Store.getTodayWorkoutTemplate();
+        const templ = todayInfo.template;
+        const dayKey = todayInfo.dayKey;
+        const dayName = todayInfo.dayName;
+        const date = todayInfo.date;
+        const recurringSplit = Store.getWorkoutTemplateForDay(dayKey) || {
+            routineName: 'Rest',
+            workoutType: 'Rest',
+            isRestDay: true,
+            muscleGroups: []
+        };
+
+        // Extract currently assigned muscle groups
+        const currentGroups = Array.isArray(templ?.muscleGroups) && templ.muscleGroups.length > 0
+            ? templ.muscleGroups
+            : (templ?.routineName && !templ.isRestDay ? templ.routineName.split('+').map(s => s.trim()) : []);
+
+        const canonicalMap = {
+            'chest': 'Chest',
+            'back': 'Back',
+            'shoulders': 'Shoulders',
+            'shoulder': 'Shoulders',
+            'biceps': 'Biceps',
+            'bicep': 'Biceps',
+            'triceps': 'Triceps',
+            'tricep': 'Triceps',
+            'legs': 'Legs',
+            'leg': 'Legs',
+            'abs': 'Abs',
+            'abdominals': 'Abs',
+            'core': 'Abs'
+        };
+
+        const selected = new Set();
+        currentGroups.forEach(g => {
+            const canon = canonicalMap[(g || '').trim().toLowerCase()];
+            if (canon) selected.add(canon);
+        });
+
+        this.changeWorkoutState = {
+            isOpen: true,
+            dayKey,
+            dayName,
+            date,
+            recurringSplit,
+            isCurrentOverride: !!templ?.isOverride,
+            selectedMuscleGroups: selected,
+            scope: 'today', // 'today' | 'weekly'
+            weeklyConfirmed: false,
+            isSaving: false,
+            error: null
+        };
+
+        let modal = document.getElementById('changeTodayWorkoutModal');
+        if (!modal) {
+            modal = document.createElement('div');
+            modal.className = 'modal-overlay';
+            modal.id = 'changeTodayWorkoutModal';
+            document.body.appendChild(modal);
+        }
+
+        modal.onclick = (e) => {
+            if (e.target === modal) {
+                GymEngine.closeChangeTodayWorkoutModal();
+            }
+        };
+
+        this.renderChangeTodayWorkoutModalUI();
+        modal.classList.add('active');
+    },
+
+    closeChangeTodayWorkoutModal() {
+        const modal = document.getElementById('changeTodayWorkoutModal');
+        if (modal) {
+            modal.classList.remove('active');
+        }
+        this.changeWorkoutState = null;
+    },
+
+    toggleTodayMuscleGroup(muscleGroup) {
+        if (!this.changeWorkoutState) return;
+        const set = this.changeWorkoutState.selectedMuscleGroups;
+        if (set.has(muscleGroup)) {
+            set.delete(muscleGroup);
+        } else {
+            set.add(muscleGroup);
+        }
+        this.renderChangeTodayWorkoutModalUI();
+    },
+
+    setChangeWorkoutScope(scope) {
+        if (!this.changeWorkoutState) return;
+        this.changeWorkoutState.scope = scope;
+        this.changeWorkoutState.weeklyConfirmed = false;
+        this.renderChangeTodayWorkoutModalUI();
+    },
+
+    toggleWeeklyPlanConfirm(isConfirmed) {
+        if (!this.changeWorkoutState) return;
+        this.changeWorkoutState.weeklyConfirmed = !!isConfirmed;
+        const btnSave = document.getElementById('btnSaveTodayWorkout');
+        if (btnSave && this.changeWorkoutState.scope === 'weekly') {
+            btnSave.disabled = !this.changeWorkoutState.weeklyConfirmed;
+        }
+    },
+
+    markTodayAsRest() {
+        if (!this.changeWorkoutState) return;
+        this.changeWorkoutState.selectedMuscleGroups.clear();
+        this.renderChangeTodayWorkoutModalUI();
+    },
+
+    resetTodayWorkoutToSplit() {
+        if (!this.changeWorkoutState) return;
+        const targetDate = this.changeWorkoutState.date;
+        Store.removeTodayWorkoutOverride(targetDate);
+        const splitName = this.changeWorkoutState.recurringSplit?.routineName || 'Weekly Split';
+        this.closeChangeTodayWorkoutModal();
+        showToast(`Today reset to recurring split: ${splitName}`, 'info');
+        this.render();
+    },
+
+    renderChangeTodayWorkoutModalUI() {
+        const modal = document.getElementById('changeTodayWorkoutModal');
+        if (!modal || !this.changeWorkoutState) return;
+
+        const { dayKey, dayName, date, recurringSplit, isCurrentOverride, selectedMuscleGroups, scope, weeklyConfirmed, isSaving } = this.changeWorkoutState;
+        const selectedArr = Array.from(selectedMuscleGroups);
+        const isRest = selectedArr.length === 0;
+        const routineName = isRest ? 'Rest' : selectedArr.join(' + ');
+
+        modal.innerHTML = `
+            <div class="modal-window change-workout-modal-window">
+                <div class="modal-header">
+                    <div>
+                        <span class="wizard-modal-eyebrow">PLANNED WORKOUT ADJUSTMENT</span>
+                        <h3 class="wizard-modal-title">✏️ Change Today's Workout</h3>
+                    </div>
+                    <button type="button" class="btn-close-modal" aria-label="Close" onclick="GymEngine.closeChangeTodayWorkoutModal()">×</button>
+                </div>
+
+                <div class="change-workout-modal-body">
+                    <!-- Current Info Bar -->
+                    <div class="change-workout-info-bar">
+                        <div>
+                            <span style="font-size: 11px; color: var(--gold); font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px;">Schedule Context</span>
+                            <div style="font-size: 15px; font-weight: 800; color: #fff; margin-top: 2px;">
+                                ${dayName} · <span style="color: var(--text-secondary); font-size: 13px; font-weight: normal;">${date}</span>
+                            </div>
+                        </div>
+                        <div style="text-align: right;">
+                            <span style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">Recurring Weekly Split</span>
+                            <div style="font-size: 13.5px; font-weight: 700; color: var(--text-secondary); margin-top: 2px;">
+                                ${recurringSplit.routineName || 'Rest'}
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Muscle Groups Selector -->
+                    <div>
+                        <div class="change-workout-section-title">
+                            <span>Select Muscle Groups to Train</span>
+                            <button type="button" class="action-btn-ghost" style="padding: 3px 8px; font-size: 11px;" onclick="GymEngine.markTodayAsRest()">
+                                😴 Clear (Rest Day)
+                            </button>
+                        </div>
+                        <div class="muscle-group-chips-grid">
+                            ${this.AVAILABLE_MUSCLE_GROUPS.map(mg => {
+                                const isSel = selectedMuscleGroups.has(mg.id);
+                                return `
+                                    <button
+                                        type="button"
+                                        class="muscle-chip-btn ${isSel ? 'selected' : ''}"
+                                        onclick="GymEngine.toggleTodayMuscleGroup('${mg.id}')"
+                                        title="${isSel ? 'Click to deselect ' + mg.name : 'Click to select ' + mg.name}"
+                                    >
+                                        <span class="chip-icon">${mg.icon}</span>
+                                        <span class="chip-name">${mg.name}</span>
+                                        <span class="chip-indicator">✓ Active</span>
+                                    </button>
+                                `;
+                            }).join('')}
+                        </div>
+                    </div>
+
+                    <!-- Selected Routine Live Preview -->
+                    <div class="change-routine-preview-box">
+                        <div>
+                            <span style="font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 700;">Resulting Routine</span>
+                            <div style="font-size: 16px; font-weight: 800; color: ${isRest ? 'var(--text-secondary)' : 'var(--gold)'}; margin-top: 2px;">
+                                ${routineName}
+                            </div>
+                        </div>
+                        <span style="font-size: 12px; color: var(--text-muted);">
+                            ${isRest ? 'Recovery / Rest Day' : `${selectedArr.length} muscle group${selectedArr.length === 1 ? '' : 's'} selected`}
+                        </span>
+                    </div>
+
+                    <!-- Two Change Options (Requirement 4) -->
+                    <div class="change-scope-container">
+                        <span class="change-workout-section-title">Change Scope</span>
+
+                        <label class="change-scope-card ${scope === 'today' ? 'active' : ''}">
+                            <input
+                                type="radio"
+                                name="changeWorkoutScope"
+                                value="today"
+                                ${scope === 'today' ? 'checked' : ''}
+                                onchange="GymEngine.setChangeWorkoutScope('today')"
+                            >
+                            <div>
+                                <div class="change-scope-title">📅 Change Today Only (Default)</div>
+                                <p class="change-scope-desc">
+                                    Modify only today's planned workout (${dayName}, ${date}). Your recurring weekly split remains <b>${recurringSplit.routineName}</b>.
+                                </p>
+                            </div>
+                        </label>
+
+                        <label class="change-scope-card ${scope === 'weekly' ? 'active' : ''}">
+                            <input
+                                type="radio"
+                                name="changeWorkoutScope"
+                                value="weekly"
+                                ${scope === 'weekly' ? 'checked' : ''}
+                                onchange="GymEngine.setChangeWorkoutScope('weekly')"
+                            >
+                            <div>
+                                <div class="change-scope-title">🔁 Update Weekly Workout Plan</div>
+                                <p class="change-scope-desc">
+                                    Permanently update your recurring weekly workout split for every upcoming <b>${dayName}</b>.
+                                </p>
+                            </div>
+                        </label>
+
+                        ${scope === 'weekly' ? `
+                            <div class="weekly-confirm-box">
+                                <label class="weekly-confirm-label">
+                                    <input
+                                        type="checkbox"
+                                        id="confirmWeeklyPlanChange"
+                                        ${weeklyConfirmed ? 'checked' : ''}
+                                        onchange="GymEngine.toggleWeeklyPlanConfirm(this.checked)"
+                                    >
+                                    <span>
+                                        <b>⚠️ Explicit Confirmation:</b> I confirm permanently updating the recurring weekly split for every <b>${dayName}</b> to <b>${routineName}</b>.
+                                    </span>
+                                </label>
+                            </div>
+                        ` : ''}
+                    </div>
+                </div>
+
+                <div class="modal-footer" style="padding: 16px 20px; display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border-subtle); gap: 10px; flex-wrap: wrap;">
+                    <div style="display: flex; gap: 8px; align-items: center;">
+                        <button type="button" class="action-btn-ghost" onclick="GymEngine.closeChangeTodayWorkoutModal()">
+                            Cancel
+                        </button>
+                        ${isCurrentOverride ? `
+                            <button
+                                type="button"
+                                class="action-btn-ghost"
+                                style="color: var(--sky); border-color: rgba(56, 189, 248, 0.35);"
+                                onclick="GymEngine.resetTodayWorkoutToSplit()"
+                                title="Revert today back to weekly split: ${recurringSplit.routineName}"
+                            >
+                                ↩️ Reset to Weekly Split
+                            </button>
+                        ` : ''}
+                    </div>
+                    <button
+                        type="button"
+                        class="btn-primary"
+                        id="btnSaveTodayWorkout"
+                        style="padding: 10px 24px; font-weight: 800;"
+                        onclick="GymEngine.saveTodayWorkoutChange()"
+                        ${scope === 'weekly' && !weeklyConfirmed ? 'disabled' : ''}
+                    >
+                        <span>💾</span>
+                        <span>Save Today's Workout</span>
                     </button>
                 </div>
             </div>
         `;
+    },
+
+    saveTodayWorkoutChange() {
+        if (!this.changeWorkoutState) return;
+        if (this.changeWorkoutState.isSaving) return;
+
+        const { dayKey, dayName, date, scope, weeklyConfirmed, selectedMuscleGroups } = this.changeWorkoutState;
+        const groups = Array.from(selectedMuscleGroups);
+        const isRestDay = groups.length === 0;
+        const routineName = isRestDay ? 'Rest' : groups.join(' + ');
+
+        if (scope === 'weekly' && !weeklyConfirmed) {
+            showToast(`Please check the confirmation box to update the recurring weekly plan for ${dayName}.`, 'warning');
+            return;
+        }
+
+        this.changeWorkoutState.isSaving = true;
+
+        try {
+            if (scope === 'weekly') {
+                Store.saveRecurringDayRoutine(dayKey, {
+                    routineName,
+                    workoutType: routineName,
+                    muscleGroups: groups,
+                    isRestDay
+                });
+                showToast(`Weekly split for ${dayName} updated to ${routineName}!`, 'success');
+            } else {
+                Store.saveTodayWorkoutOverride({
+                    routineName,
+                    workoutType: routineName,
+                    muscleGroups: groups,
+                    isRestDay
+                }, date);
+                showToast(`Today's workout changed to ${routineName}!`, 'success');
+            }
+
+            this.closeChangeTodayWorkoutModal();
+            this.render();
+        } catch (err) {
+            console.error('[Gym] Failed to save workout change:', err);
+            showToast('Failed to save workout change. Please try again.', 'error');
+            if (this.changeWorkoutState) {
+                this.changeWorkoutState.isSaving = false;
+            }
+        }
     },
 
     // -------------------------------------------------------------------------
